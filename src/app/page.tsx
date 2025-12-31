@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Chart from "chart.js/auto";
+import Papa from "papaparse";
 
 // --- Components ---
 
@@ -31,6 +32,7 @@ function Sidebar() {
 
 function Header() {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isUploading, setIsUploading] = useState(false);
 
   const handleImportClick = () => {
     fileInputRef.current?.click();
@@ -39,8 +41,64 @@ function Header() {
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
+      setIsUploading(true);
       console.log("File selected:", file.name);
-      // TODO: Implement file parsing logic
+
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: async (results) => {
+          console.log("Parsed CSV rows:", results.data.length);
+          console.log("First parsed row:", results.data[0]);
+          console.log("CSV errors:", results.errors);
+
+          if (!results.data || results.data.length === 0) {
+            alert("No data found in CSV file. Please check the file format.");
+            setIsUploading(false);
+            return;
+          }
+
+          try {
+            const response = await fetch("/api/leads/import", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify(results.data),
+            });
+
+            const data = await response.json();
+            console.log("Import result:", data);
+
+            if (data.success) {
+              const message = `Import complete!\nProcessed: ${data.processed}\nFailed: ${data.failed}${
+                data.errors && data.errors.length > 0
+                  ? `\n\nErrors:\n${data.errors
+                      .slice(0, 5)
+                      .map((e: any) => `Row ${e.row}: ${e.error}`)
+                      .join("\n")}`
+                  : ""
+              }`;
+              alert(message);
+            } else {
+              alert(
+                `Import failed: ${data.error || "Unknown error"}\n\nCheck console for details.`
+              );
+            }
+          } catch (error) {
+            console.error("Upload error:", error);
+            alert(`Error uploading leads: ${error instanceof Error ? error.message : "Unknown error"}`);
+          } finally {
+            setIsUploading(false);
+            if (fileInputRef.current) fileInputRef.current.value = ""; // Reset input
+          }
+        },
+        error: (error) => {
+          console.error("CSV Parse Error:", error);
+          alert(`Failed to parse CSV file: ${error.message || "Unknown error"}`);
+          setIsUploading(false);
+        },
+      });
     }
   };
 
@@ -68,14 +126,18 @@ function Header() {
           type="file"
           ref={fileInputRef}
           className="hidden"
-          accept=".csv,.xlsx,.xls"
+          accept=".csv"
           onChange={handleFileChange}
         />
         <button
           onClick={handleImportClick}
-          className="px-6 py-3 bg-slate-900 text-white rounded-2xl text-xs font-bold shadow-lg shadow-slate-200 hover:scale-105 transition"
+          disabled={isUploading}
+          className={`px-6 py-3 bg-slate-900 text-white rounded-2xl text-xs font-bold shadow-lg shadow-slate-200 hover:scale-105 transition flex items-center gap-2 ${
+            isUploading ? "opacity-75 cursor-wait" : ""
+          }`}
         >
-          Import Leads
+          {isUploading && <i className="fa-solid fa-circle-notch fa-spin"></i>}
+          {isUploading ? "Importing..." : "Import Leads"}
         </button>
       </div>
     </header>
