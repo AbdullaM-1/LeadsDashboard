@@ -463,6 +463,20 @@ export default function Home() {
             <VelocityMap />
             <FunnelAnatomy />
           </div>
+
+          {/* RingCentral Widget */}
+          <div className="mt-8 flex justify-end">
+            <div className="glass-panel p-6 rounded-[2rem]">
+              <iframe
+                width="300"
+                height="500"
+                id="rc-widget"
+                allow="autoplay; microphone"
+                src="https://apps.ringcentral.com/integration/ringcentral-embeddable/latest/app.html"
+                className="rounded-xl"
+              ></iframe>
+            </div>
+          </div>
         </div>
       </main>
     </div>

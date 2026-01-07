@@ -3,10 +3,12 @@ import { NextRequest, NextResponse } from "next/server";
 const API_BASE = "https://services.leadconnectorhq.com";
 
 // Custom field IDs - update these with your actual GoHighLevel custom field IDs
+// To find your custom field ID: Go to GoHighLevel > Settings > Custom Fields > find "Lead Status" > copy the ID
 const CUSTOM_FIELD_IDS = {
   leadAge: "", // e.g. '6dvNaf7VhkQ9snc5vnjJ'
   callLogs: "",
   status: "", // dropdown (New | Qualified | Not-Qualified | CallBack)
+  leadStatus: "", // IMPORTANT: Set this to your "Lead Status" custom field ID from GoHighLevel
 };
 
 const STATUS_OPTIONS = ["New", "Qualified", "Not-Qualified", "CallBack"];
@@ -50,6 +52,7 @@ function buildCustomFields(values: {
   leadAge?: { value: string };
   callLogs?: { value: string };
   status?: { value: string };
+  leadStatus?: { value: string };
 }) {
   const customFields: Array<{ id: string; key: string; field_value: string }> =
     [];
@@ -133,6 +136,7 @@ async function createContactInGHL(
     leadAge: leadData.age ? { value: leadData.age } : undefined,
     callLogs: leadData.logs ? { value: leadData.logs } : undefined,
     status: { value: leadData.status },
+    leadStatus: { value: "New" }, // Always set Lead Status to "New" for imported contacts
   });
 
   const body: any = {
