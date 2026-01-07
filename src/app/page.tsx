@@ -443,7 +443,7 @@ function FunnelAnatomy() {
 
 export default function Home() {
   return (
-    <div className="antialiased text-slate-900 min-h-screen flex bg-[#FBFBFC]">
+    <div className="antialiased text-slate-900 min-h-screen flex bg-[#FBFBFC]" style={{ fontFamily: "var(--font-geist-sans), 'Inter', sans-serif" }}>
       <div className="grain"></div>
 
       <Sidebar />

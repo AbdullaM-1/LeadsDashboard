@@ -168,13 +168,19 @@ export default function DashboardPage() {
   const [newLead, setNewLead] = useState({ ...INITIAL_LEAD_FORM });
   const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
   const [importTags, setImportTags] = useState('Imported');
+  const [importSource, setImportSource] = useState('CSV Import');
   const [importError, setImportError] = useState<string | null>(null);
   const [showTagInput, setShowTagInput] = useState(false);
   const [newTagValue, setNewTagValue] = useState('');
   const [isTagSaving, setIsTagSaving] = useState(false);
+  const [pageCursors, setPageCursors] = useState<Record<number, { created_at: string; id: string } | null>>({});
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteStatusFilter, setDeleteStatusFilter] = useState<string>('All');
+  const [isDeleting, setIsDeleting] = useState(false);
   const [selectedDisposition, setSelectedDisposition] = useState<string>('No Answer');
+  const [itemsPerPage, setItemsPerPage] = useState(50);
   const [isSubmittingDisposition, setIsSubmittingDisposition] = useState(false);
-  const itemsPerPage = 50;
+  // const itemsPerPage = 50; // Replaced with state
 
   const getDateFilterLabel = () => {
     switch (dateFilterMode) {
@@ -201,7 +207,7 @@ export default function DashboardPage() {
     if (activeView === 'contacts') {
       fetchLeads();
     }
-  }, [activeView, currentPage, sortConfig, viewMode, statusFilter, dateFilterMode, selectedDate, selectedMonth]);
+  }, [activeView, currentPage, sortConfig, viewMode, statusFilter, dateFilterMode, selectedDate, selectedMonth, itemsPerPage]);
 
   useEffect(() => {
     const displayStatus = getDisplayStatusFromDb(activeLead?.status);
@@ -210,6 +216,8 @@ export default function DashboardPage() {
     } else {
       setSelectedDisposition('No Answer');
     }
+    setShowTagInput(false);
+    setNewTagValue('');
   }, [activeLead]);
 
   const fetchLeads = async () => {
@@ -217,10 +225,20 @@ export default function DashboardPage() {
     try {
       const from = (currentPage - 1) * itemsPerPage;
       const to = from + itemsPerPage - 1;
+      const useCursorPagination = !sortConfig;
+      const previousCursor = useCursorPagination ? pageCursors[currentPage - 1] : null;
+      const shouldCount = useCursorPagination
+        ? currentPage === 1 && Object.keys(pageCursors).length === 0
+        : true;
+
+      const selectOptions: { count?: 'exact' | 'estimated' | 'planned' } = {};
+      if (shouldCount) {
+        selectOptions.count = useCursorPagination ? 'estimated' : 'exact';
+      }
 
       let query = supabase
         .from('leads')
-        .select('*', { count: 'exact' });
+        .select('*', selectOptions);
 
       if (viewMode === 'untouched') {
         const processedList = PROCESSED_STATUS_DB_VALUES.map((status) =>
@@ -261,7 +279,11 @@ export default function DashboardPage() {
       }
 
       if (!sortConfig) {
-        query = query.order('created_at', { ascending: false });
+        if (useCursorPagination) {
+          query = query.order('created_at', { ascending: false }).order('id', { ascending: false });
+        } else {
+          query = query.order('created_at', { ascending: false });
+        }
       } else {
         let dbKey = sortConfig.key;
         if (sortConfig.key === 'name') dbKey = 'first_name';
@@ -271,12 +293,50 @@ export default function DashboardPage() {
         });
       }
 
-      const { data, error, count } = await query.range(from, to);
+        if (useCursorPagination && previousCursor) {
+        query = query.or(
+          `created_at.lt.${previousCursor.created_at},and(created_at.eq.${previousCursor.created_at},id.lt.${previousCursor.id})`
+        );
+      }
+
+      let data: Lead[] | null = null;
+      let error = null;
+      let count: number | null = null;
+
+      if (useCursorPagination) {
+        const response = await query.limit(itemsPerPage);
+        data = response.data;
+        error = response.error;
+        count = response.count;
+      } else {
+        const response = await query.range(from, to);
+        data = response.data;
+        error = response.error;
+        count = response.count;
+      }
 
       if (error) throw error;
       const fetchedLeads = data || [];
       setLeads(fetchedLeads);
-      setTotalLeads(count || 0);
+      if (typeof count === 'number') {
+        setTotalLeads(count);
+      }
+
+      if (useCursorPagination) {
+        const nextCursor =
+          fetchedLeads.length === itemsPerPage
+            ? {
+                created_at: fetchedLeads[fetchedLeads.length - 1].created_at,
+                id: fetchedLeads[fetchedLeads.length - 1].id,
+              }
+            : null;
+        setPageCursors((prev) => ({
+          ...prev,
+          [currentPage]: nextCursor,
+        }));
+      } else {
+        setPageCursors({});
+      }
 
       if (fetchedLeads.length > 0 && !activeLead) {
         setActiveLead(fetchedLeads[0]);
@@ -306,6 +366,7 @@ export default function DashboardPage() {
     }
     
     setSortConfig({ key, direction });
+    setPageCursors({});
     setCurrentPage(1); // Reset to first page on sort change
   };
 
@@ -314,9 +375,14 @@ export default function DashboardPage() {
     setActiveView('dialer');
   };
 
+  const resetPaginationState = () => {
+    setPageCursors({});
+    setCurrentPage(1);
+  };
+
   const applyQuickDateFilter = (mode: DateFilterMode) => {
     setDateFilterMode(mode);
-    setCurrentPage(1);
+    resetPaginationState();
     if (mode !== 'date') {
       setSelectedDate('');
     }
@@ -382,6 +448,7 @@ export default function DashboardPage() {
 
       setNewLead({ ...INITIAL_LEAD_FORM });
       setShowLeadModal(false);
+      resetPaginationState();
       await fetchLeads();
       alert('Lead created successfully!');
     } catch (err) {
@@ -396,6 +463,7 @@ export default function DashboardPage() {
     setShowImportModal(false);
     setPendingImportFile(null);
     setImportTags('Imported');
+    setImportSource('CSV Import');
     setImportError(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
@@ -467,7 +535,8 @@ export default function DashboardPage() {
                     getDisplayStatusFromDb(row['Status']?.trim()) || 'New'
                   )
                 : 'New',
-            source: 'CSV Import',
+            source:
+              row['Source']?.trim() || importSource || 'CSV Import',
             tags: finalTags,
             created_at: new Date().toISOString(),
           }));
@@ -483,6 +552,7 @@ export default function DashboardPage() {
           if (error) throw error;
 
           alert(`Successfully imported ${parsedLeads.length} leads!`);
+          resetPaginationState();
           await fetchLeads();
           resetImportModal();
         } catch (err: any) {
@@ -498,6 +568,43 @@ export default function DashboardPage() {
         setIsImporting(false);
       },
     });
+  };
+
+  const handleBulkDelete = async () => {
+    if (!confirm(`Are you sure you want to delete leads with status: ${deleteStatusFilter}? This action cannot be undone.`)) {
+      return;
+    }
+
+    setIsDeleting(true);
+    try {
+      let query = supabase.from('leads').delete();
+
+      if (deleteStatusFilter !== 'All') {
+        const statusesToDelete = STATUS_QUERY_MAP[deleteStatusFilter] ?? [deleteStatusFilter];
+        if (statusesToDelete.length === 1) {
+          query = query.eq('status', statusesToDelete[0]);
+        } else {
+          query = query.in('status', statusesToDelete);
+        }
+      } else {
+        // To delete all, we need a condition that matches everything. neq id 0 is a safe bet for UUIDs
+        query = query.neq('id', '00000000-0000-0000-0000-000000000000');
+      }
+
+      const { error } = await query;
+      if (error) throw error;
+
+      setShowDeleteModal(false);
+      setDeleteStatusFilter('All');
+      resetPaginationState();
+      await fetchLeads();
+      alert('Leads deleted successfully');
+    } catch (err) {
+      console.error('Error deleting leads:', err);
+      alert('Failed to delete leads');
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const updateLeadInState = (updatedLead: Lead) => {
@@ -569,6 +676,13 @@ export default function DashboardPage() {
   const totalPages = Math.ceil(totalLeads / itemsPerPage);
 
   const getPageNumbers = () => {
+    // If using cursor pagination and we are deep in pages (e.g. page > 1),
+    // random access is restricted. But for simplicity in UI, we will just show
+    // simple Next/Prev if sorting is default (Cursor mode), or standard if not.
+    
+    // However, to keep UI consistent, let's keep the numbers but disable them 
+    // or rely on the hybrid approach where clicking them triggers offset fetch.
+    
     const pages = [];
     const maxVisiblePages = 5;
     
@@ -615,11 +729,11 @@ export default function DashboardPage() {
 
   return (
     <>
-      <div className="bg-slate-50 text-slate-900 h-screen overflow-hidden flex" style={{ fontFamily: "'Inter', sans-serif" }}>
-      <style>{`
-        :root {
-          --p-indigo: #6366f1;
-        }
+      <div className="bg-slate-50 text-slate-900 h-screen overflow-hidden flex" style={{ fontFamily: "var(--font-geist-sans), 'Inter', sans-serif" }}>
+        <style>{`
+          :root {
+            --p-indigo: #6366f1;
+          }
         ::-webkit-scrollbar { width: 5px; height: 5px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
@@ -659,10 +773,7 @@ export default function DashboardPage() {
       {/* 1. LEFT NAVIGATION (SLIMMER & MORE MODERN) */}
       <aside className="w-64 bg-slate-950 text-white flex flex-col shrink-0 border-r border-white/10">
         <div className="h-16 flex items-center px-6 mb-4">
-          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center mr-3 shadow-lg shadow-blue-500/20">
-            <i className="fa-solid fa-bolt-lightning text-white text-sm"></i>
-          </div>
-          <span className="font-bold tracking-tight text-lg">Connect<span className="text-blue-400">CRM</span></span>
+          <span className="font-bold tracking-tight text-lg">Integrated <span className="text-blue-400">Financial</span></span>
         </div>
 
         <nav className="px-4 space-y-1">
@@ -1086,18 +1197,18 @@ export default function DashboardPage() {
             <header className="bg-white border-b border-slate-200 px-8 h-20 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-4">
                 <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Contacts</h1>
-                <div className="h-6 w-px bg-slate-200"></div>
+                {/* <div className="h-6 w-px bg-slate-200"></div>
                 <div className="flex bg-slate-100 p-1 rounded-xl">
                   <button className="px-4 py-1.5 text-xs font-bold bg-white shadow-sm rounded-lg text-blue-600">Smart Lists</button>
                   <button className="px-4 py-1.5 text-xs font-bold text-slate-500 hover:text-slate-900 transition-colors">Segments</button>
-                </div>
+                </div> */}
               </div>
 
               <div className="flex items-center gap-3">
-                <div className="relative group">
+                {/* <div className="relative group">
                   <i className="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
                   <input type="text" placeholder="Search by name, tag, or email..." className="pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-100 outline-none w-72 transition-all group-hover:bg-white" />
-                </div>
+                </div> */}
                 
                 <input
                   type="file"
@@ -1106,6 +1217,13 @@ export default function DashboardPage() {
                   ref={fileInputRef}
                   onChange={handleFileSelect}
                 />
+                <button 
+                  onClick={() => setShowDeleteModal(true)}
+                  className="bg-white border border-red-200 text-red-600 px-5 py-2.5 rounded-xl font-bold text-sm shadow-sm hover:bg-red-50 transition-all flex items-center gap-2"
+                >
+                  <i className="fa-solid fa-trash-can text-[10px]"></i>
+                  Delete Leads
+                </button>
                 <button 
                   onClick={() => setShowImportModal(true)}
                   disabled={isImporting}
@@ -1128,7 +1246,7 @@ export default function DashboardPage() {
             <div className="bg-white px-8 py-3 border-b border-slate-100 flex items-center justify-between shadow-sm">
               <div className="flex items-center gap-2">
                 {/* Smart List Tabs */}
-                <button
+                {/* <button
                   className={`text-xs font-bold pb-3 px-3 border-b-2 ${
                     viewMode === 'all'
                       ? 'border-blue-600 text-slate-900'
@@ -1141,8 +1259,8 @@ export default function DashboardPage() {
                   }}
                 >
                   All Contacts
-                </button>
-                <button
+                </button> */}
+                {/* <button
                   className={`text-xs font-medium pb-3 px-3 transition-colors flex items-center gap-1.5 ${
                     viewMode === 'untouched'
                       ? 'text-blue-600 border-b-2 border-blue-600'
@@ -1172,16 +1290,16 @@ export default function DashboardPage() {
                 </button>
                 <button className="text-xs font-medium text-slate-400 hover:text-slate-600 pb-3 px-3 transition-colors flex items-center gap-1.5">
                   Qualified Deals
-                </button>
+                </button> */}
               </div>
 
               <div className="flex items-center gap-4 mb-2">
-                <button className="text-[11px] font-bold text-slate-500 uppercase flex items-center gap-1 hover:text-blue-600">
+                {/* <button className="text-[11px] font-bold text-slate-500 uppercase flex items-center gap-1 hover:text-blue-600">
                   <i className="fa-solid fa-sliders text-xs"></i> Filter
                 </button>
                 <button className="text-[11px] font-bold text-slate-500 uppercase flex items-center gap-1 hover:text-blue-600">
                   <i className="fa-solid fa-columns text-xs"></i> Columns
-                </button>
+                </button> */}
               </div>
             </div>
 
@@ -1309,7 +1427,21 @@ export default function DashboardPage() {
               <table className="w-full text-left border-collapse min-w-[1000px]">
                 <thead>
                   <tr className="border-b border-slate-100 text-[11px] font-bold text-slate-400 uppercase tracking-widest">
-                    <th className="py-4 px-2 w-10"><input type="checkbox" className="rounded text-blue-600 border-slate-300 checkbox-custom" /></th>
+                    <th className="py-4 px-2 w-10">
+                      <input 
+                        type="checkbox" 
+                        className="rounded text-blue-600 border-slate-300 checkbox-custom" 
+                        checked={leads.length > 0 && selectedLeads.size === leads.length}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            const allIds = new Set(leads.map(l => l.id));
+                            setSelectedLeads(allIds);
+                          } else {
+                            setSelectedLeads(new Set());
+                          }
+                        }}
+                      />
+                    </th>
                     <th className="py-4 px-4 hover:text-blue-600 cursor-pointer group">
                       Lead Name {getSortIcon('name')}
                     </th>
@@ -1416,7 +1548,7 @@ export default function DashboardPage() {
                         </td>
                         <td className="py-4 px-4 text-right">
                           <button className="text-slate-400 hover:text-blue-600 p-2 transition-all">
-                            <i className="fa-solid fa-paper-plane"></i>
+                            <i className="fa-solid fa-phone"></i>
                           </button>
                         </td>
                       </tr>
@@ -1428,8 +1560,27 @@ export default function DashboardPage() {
 
             {/* Pagination / Status Footer */}
             <footer className="h-14 px-8 border-t border-slate-200 bg-white flex items-center justify-between shrink-0">
-              <div className="text-xs font-semibold text-slate-500">
-                Showing <span className="text-slate-900">{totalLeads > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0} - {Math.min(currentPage * itemsPerPage, totalLeads)}</span> of {totalLeads} Leads
+              <div className="flex items-center gap-4">
+                <div className="text-xs font-semibold text-slate-500">
+                  Showing <span className="text-slate-900">{totalLeads > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0} - {Math.min(currentPage * itemsPerPage, totalLeads)}</span> of {totalLeads} Leads
+                </div>
+                <div className="h-4 w-px bg-slate-200"></div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Show:</span>
+                  <select 
+                    value={itemsPerPage}
+                    onChange={(e) => {
+                      setItemsPerPage(Number(e.target.value));
+                      setCurrentPage(1);
+                      setPageCursors({});
+                    }}
+                    className="text-xs font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                    <option value={1000}>1k</option>
+                  </select>
+                </div>
               </div>
               
               <div className="flex items-center gap-1">
@@ -1474,10 +1625,28 @@ export default function DashboardPage() {
                 <span className="text-xs font-medium tracking-wide">Leads Selected</span>
               </div>
               <div className="flex items-center gap-6">
-                <button className="text-xs font-bold hover:text-blue-400 transition-colors flex items-center gap-2"><i className="fa-solid fa-paper-plane text-[11px]"></i> SMS Blast</button>
-                <button className="text-xs font-bold hover:text-blue-400 transition-colors flex items-center gap-2"><i className="fa-solid fa-tag text-[11px]"></i> Update Tags</button>
-                <button className="text-xs font-bold hover:text-blue-400 transition-colors flex items-center gap-2"><i className="fa-solid fa-bolt text-[11px]"></i> Add to Workflow</button>
-                <button className="text-xs font-bold hover:text-red-400 transition-colors"><i className="fa-solid fa-trash-can"></i></button>
+                {/* <button className="text-xs font-bold hover:text-blue-400 transition-colors flex items-center gap-2"><i className="fa-solid fa-phone text-[11px]"></i> Update Call</button> */}
+                <button 
+                  onClick={async () => {
+                    if (confirm(`Are you sure you want to delete ${selectedLeads.size} leads?`)) {
+                      setLoading(true);
+                      try {
+                        const { error } = await supabase.from('leads').delete().in('id', Array.from(selectedLeads));
+                        if (error) throw error;
+                        setSelectedLeads(new Set());
+                        await fetchLeads();
+                      } catch (err) {
+                        console.error('Error deleting leads:', err);
+                        alert('Failed to delete leads');
+                      } finally {
+                        setLoading(false);
+                      }
+                    }
+                  }}
+                  className="text-xs font-bold hover:text-red-400 transition-colors flex items-center gap-2"
+                >
+                  <i className="fa-solid fa-trash-can text-[11px]"></i> Delete
+                </button>
               </div>
               <button 
                 onClick={() => setSelectedLeads(new Set())}
@@ -1531,6 +1700,20 @@ export default function DashboardPage() {
               </div>
 
               <div>
+                <label className="glass-label">Lead Source</label>
+                <input
+                  type="text"
+                  value={importSource}
+                  onChange={(e) => setImportSource(e.target.value)}
+                  placeholder="CSV Import"
+                  className="glass-input w-full rounded-xl px-4 py-3 text-sm font-semibold text-slate-900 placeholder:text-slate-400"
+                />
+                <p className="text-[11px] text-slate-400 mt-2">
+                  The origin of these leads (e.g., "Facebook Ads", "Affiliate"). Defaults to "CSV Import".
+                </p>
+              </div>
+
+              <div>
                 <label className="glass-label">Tags (comma separated)</label>
                 <input
                   type="text"
@@ -1571,6 +1754,74 @@ export default function DashboardPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
+          <div className="glass-modal rounded-3xl w-full max-w-lg p-8 relative animate-float">
+            <button
+              onClick={() => setShowDeleteModal(false)}
+              className="absolute top-6 right-6 text-slate-400 hover:text-slate-700 transition-colors"
+            >
+              <i className="fa-solid fa-xmark text-xl"></i>
+            </button>
+
+            <h3 className="text-2xl font-black text-slate-900 mb-2 tracking-tight">Delete Leads</h3>
+            <p className="text-xs font-medium text-slate-500 mb-6 uppercase tracking-widest">
+              Select which leads you want to permanently remove.
+            </p>
+
+            <div className="space-y-6">
+              <div>
+                <label className="glass-label">Select Status to Delete</label>
+                <div className="relative">
+                  <select
+                    value={deleteStatusFilter}
+                    onChange={(e) => setDeleteStatusFilter(e.target.value)}
+                    className="glass-input w-full rounded-xl px-4 py-3 text-sm font-semibold text-slate-900 appearance-none cursor-pointer"
+                  >
+                    {STATUS_FILTERS.map((status) => (
+                      <option key={status} value={status}>
+                        {status}
+                      </option>
+                    ))}
+                  </select>
+                  <i className="fa-solid fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 text-xs pointer-events-none"></i>
+                </div>
+                <p className="text-[11px] text-slate-400 mt-2">
+                  Selecting "All" will delete <strong>every single lead</strong> in the database.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200/50">
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteModal(false)}
+                  className="px-6 py-3 rounded-xl border border-slate-200/60 bg-white/50 text-xs font-bold uppercase tracking-wider text-slate-500 hover:bg-white hover:text-slate-800 hover:border-slate-300 transition-all shadow-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleBulkDelete}
+                  disabled={isDeleting}
+                  className="px-8 py-3 rounded-xl bg-red-600 text-white text-xs font-black uppercase tracking-[0.15em] shadow-lg shadow-red-500/20 hover:bg-red-700 disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  {isDeleting ? (
+                    <>
+                      <i className="fa-solid fa-circle-notch fa-spin"></i>
+                      Deleting...
+                    </>
+                  ) : (
+                    <>
+                      <i className="fa-solid fa-trash-can"></i>
+                      Delete {deleteStatusFilter === 'All' ? 'All' : deleteStatusFilter}
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
