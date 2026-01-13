@@ -1,8 +1,10 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '@/utils/supabase/client';
 import Papa from 'papaparse';
+import WebPhone from '@/lib/ringcentral-webphone';
+import { SDK } from '@ringcentral/sdk';
 
 interface Lead {
   id: string;
@@ -180,6 +182,12 @@ export default function DashboardPage() {
   const [selectedDisposition, setSelectedDisposition] = useState<string>('No Answer');
   const [itemsPerPage, setItemsPerPage] = useState(50);
   const [isSubmittingDisposition, setIsSubmittingDisposition] = useState(false);
+  const [webPhone, setWebPhone] = useState<WebPhone | null>(null);
+  const [webPhoneReady, setWebPhoneReady] = useState(false);
+  const [webPhoneStatus, setWebPhoneStatus] = useState('Initializing...');
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const localVideoRef = useRef<HTMLVideoElement>(null);
+  const [currentCall, setCurrentCall] = useState<any>(null);
   // const itemsPerPage = 50; // Replaced with state
 
   const getDateFilterLabel = () => {
@@ -219,6 +227,345 @@ export default function DashboardPage() {
     setShowTagInput(false);
     setNewTagValue('');
   }, [activeLead]);
+
+  const [isDownloadingRecordings, setIsDownloadingRecordings] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState('');
+
+  // Helper to trigger download of a blob
+  const saveRecording = (blob: Blob, filename: string) => {
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.style.display = 'none';
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+  };
+
+  const [rcToken, setRcToken] = useState<string | null>(null);
+
+  useEffect(() => {
+    // 1. Listen for Token
+    const handleRcMessage = async (event: MessageEvent) => {
+      const data = event.data;
+      if (!data || !data.type) return;
+
+      if (data.type === 'rc-adapter-pushAdapterState' && data.accessToken) {
+         setRcToken(data.accessToken);
+      }
+    };
+    window.addEventListener('message', handleRcMessage);
+    return () => window.removeEventListener('message', handleRcMessage);
+  }, []);
+
+  const handleDownloadAllRecordings = async () => {
+    if (!rcToken) {
+       // Request token if we don't have it yet
+       const iframe = document.querySelector("#rc-widget") as HTMLIFrameElement;
+       iframe?.contentWindow?.postMessage({
+         type: 'rc-adapter-register-service',
+         service: 'RcAdapter',
+       }, '*');
+       alert('Please wait for the dialer to fully load and try again in a few seconds.');
+       return;
+    }
+
+    if (!confirm('This will download all recordings and voicemails (last 90 days) directly from RingCentral. Continue?')) return;
+
+    setIsDownloadingRecordings(true);
+    setDownloadProgress('Starting...');
+
+    try {
+        const dateFrom = new Date();
+        dateFrom.setDate(dateFrom.getDate() - 90);
+        const dateFromIso = dateFrom.toISOString();
+        const headers = { Authorization: `Bearer ${rcToken}` };
+
+        // 1. Fetch Call Recordings
+        setDownloadProgress('Fetching Call Log...');
+        const callLogRes = await fetch(`https://platform.ringcentral.com/restapi/v1.0/account/~/extension/~/call-log?withRecording=true&dateFrom=${dateFromIso}&perPage=1000`, { headers });
+        const callLogData = await callLogRes.json();
+        const recordings = callLogData.records?.filter((r: any) => r.recording) || [];
+
+        // 2. Fetch Voicemails
+        setDownloadProgress('Fetching Voicemails...');
+        const msgStoreRes = await fetch(`https://platform.ringcentral.com/restapi/v1.0/account/~/extension/~/message-store?messageType=VoiceMail&dateFrom=${dateFromIso}&perPage=1000`, { headers });
+        const msgStoreData = await msgStoreRes.json();
+        const voicemails = msgStoreData.records?.filter((r: any) => 
+            r.type === 'VoiceMail' && r.attachments?.some((a: any) => a.type === 'AudioRecording')
+        ) || [];
+
+        const totalItems = recordings.length + voicemails.length;
+        if (totalItems === 0) {
+            alert('No recordings or voicemails found.');
+            setIsDownloadingRecordings(false);
+            return;
+        }
+
+        // 3. Download Items
+        let count = 0;
+        
+        // Process Recordings
+        for (const rec of recordings) {
+            count++;
+            setDownloadProgress(`Downloading ${count}/${totalItems} (Calls)`);
+            
+            const contentUrl = rec.recording.contentUri;
+            
+            try {
+                const blobRes = await fetch(contentUrl, { headers });
+                if (blobRes.ok) {
+                    const blob = await blobRes.blob();
+                    const filename = `call_${rec.startTime}_${rec.from?.phoneNumber || 'unknown'}.mp3`;
+                    saveRecording(blob, filename);
+                }
+            } catch (e) {
+                console.error('Failed to download recording', e);
+            }
+            await new Promise(r => setTimeout(r, 800)); // Throttle
+        }
+
+        // Process Voicemails
+        for (const vm of voicemails) {
+            count++;
+            setDownloadProgress(`Downloading ${count}/${totalItems} (Voicemails)`);
+            
+            const attachment = vm.attachments.find((a: any) => a.type === 'AudioRecording');
+            if (attachment) {
+                const contentUrl = attachment.uri || `https://platform.ringcentral.com/restapi/v1.0/account/~/message-store/${vm.id}/content/${attachment.id}`;
+                
+                try {
+                    const blobRes = await fetch(contentUrl, { headers });
+                    if (blobRes.ok) {
+                        const blob = await blobRes.blob();
+                        const filename = `voicemail_${vm.creationTime}_${vm.from?.phoneNumber || 'unknown'}.mp3`;
+                        saveRecording(blob, filename);
+                    }
+                } catch (e) {
+                    console.error('Failed to download voicemail', e);
+                }
+                await new Promise(r => setTimeout(r, 800)); // Throttle
+            }
+        }
+
+        setDownloadProgress('Done!');
+        setTimeout(() => setIsDownloadingRecordings(false), 2000);
+
+    } catch (error) {
+        console.error('Download error:', error);
+        alert('An error occurred during download.');
+        setIsDownloadingRecordings(false);
+    }
+  };
+
+  /*
+  // Old logic replaced
+  */
+
+  // Initialize WebPhone
+  useEffect(() => {
+    async function initializeWebPhone() {
+      try {
+        const clientId = process.env.NEXT_PUBLIC_RC_CLIENT_ID;
+        const clientSecret = process.env.NEXT_PUBLIC_RC_CLIENT_SECRET;
+        const server = process.env.NEXT_PUBLIC_RC_SERVER || 'https://platform.ringcentral.com';
+        const jwt = process.env.NEXT_PUBLIC_RC_JWT;
+
+        if (!clientId || !clientSecret || !jwt) {
+          setWebPhoneStatus('Error: RingCentral credentials not configured. Please set NEXT_PUBLIC_RC_CLIENT_ID, NEXT_PUBLIC_RC_CLIENT_SECRET, and NEXT_PUBLIC_RC_JWT in your environment variables.');
+          return;
+        }
+
+        setWebPhoneStatus('Initializing SDK...');
+
+        const serverConstant = server.includes('ringcentral.com') && !server.includes('devtest')
+          ? SDK.server.production
+          : SDK.server.sandbox;
+
+        const sdk = new SDK({
+          clientId,
+          clientSecret,
+          server: serverConstant,
+        });
+
+        const platform = sdk.platform();
+
+        setWebPhoneStatus('Logging in...');
+
+        await platform.login({
+          jwt: jwt.trim(),
+        });
+
+        setWebPhoneStatus('Fetching SIP provision...');
+
+        const response = await platform.post('/restapi/v1.0/client-info/sip-provision', {
+          sipInfo: [{ transport: 'WSS' }],
+        });
+
+        const sipData = await response.json();
+
+        setWebPhoneStatus('Initializing WebPhone...');
+
+        const phone = new WebPhone(sipData, {
+          clientId,
+          appName: 'LeadsDashboard',
+          appVersion: '1.0.0',
+          logLevel: 1, // Reduced logging for production
+          media: {
+            remote: remoteVideoRef.current!,
+            local: localVideoRef.current!,
+          },
+          audioHelper: {
+            enabled: true,
+            incoming: '/audio/incoming.ogg',
+            outgoing: '/audio/outgoing.ogg',
+          },
+          enableQos: true,
+        });
+
+        // Listen for incoming calls
+        phone.userAgent.on('invite', (session) => {
+          console.log('Incoming call!');
+          setWebPhoneStatus('Incoming call...');
+          setCurrentCall(session);
+          
+          session.accept().then(() => {
+            console.log('Call accepted');
+            setWebPhoneStatus('Call connected');
+          });
+          
+          session.on('terminated', () => {
+            setWebPhoneStatus('Call ended');
+            setCurrentCall(null);
+          });
+        });
+        
+        // Listen for registration events
+        phone.userAgent.on('registered', () => {
+          console.log('WebPhone registered successfully');
+          setWebPhoneStatus('Ready to call');
+          setWebPhoneReady(true);
+        });
+        
+        phone.userAgent.on('unregistered', () => {
+          console.log('WebPhone unregistered');
+          setWebPhoneStatus('Disconnected');
+          setWebPhoneReady(false);
+        });
+        
+        phone.userAgent.on('registrationFailed', (error: any) => {
+          console.error('Registration failed:', error);
+          setWebPhoneStatus(`Registration failed: ${error?.message || 'Unknown error'}`);
+          setWebPhoneReady(false);
+        });
+
+        setWebPhone(phone);
+        
+        setWebPhoneStatus('Registering...');
+        
+        if (phone.userAgent && typeof phone.userAgent.register === 'function') {
+          try {
+            await phone.userAgent.register();
+            console.log('Registration initiated, waiting for confirmation...');
+            // Don't set ready here - wait for 'registered' event
+          } catch (regError: any) {
+            console.error('Registration error:', regError);
+            setWebPhoneStatus(`Registration error: ${regError?.message || 'Failed to register'}`);
+          }
+        } else {
+          setWebPhoneStatus('Error: UserAgent not available');
+        }
+
+      } catch (error: any) {
+        console.error('Failed to initialize WebPhone:', error);
+        setWebPhoneStatus(`Error: ${error.message || 'Initialization failed'}`);
+      }
+    }
+
+    initializeWebPhone();
+    
+    return () => {
+      if (webPhone?.userAgent) {
+        webPhone.userAgent.unregister();
+      }
+    };
+  }, []);
+
+  // Manual dial function
+  const handleDial = useCallback(async () => {
+    if (!webPhone || !webPhoneReady || !activeLead?.phone) {
+      alert('WebPhone is not ready or no phone number available');
+      return;
+    }
+
+    if (currentCall) {
+      alert('A call is already in progress');
+      return;
+    }
+
+    try {
+      setWebPhoneStatus(`Dialing ${activeLead.phone}...`);
+      
+      // Clean phone number (remove any formatting)
+      const cleanNumber = activeLead.phone.replace(/\D/g, '');
+      
+      const session = webPhone.userAgent.invite(cleanNumber, {
+        fromNumber: cleanNumber, // You may need to set your verified number here
+      });
+      
+      setCurrentCall(session);
+      
+      session.on('accepted', () => {
+        console.log('Call accepted');
+        setWebPhoneStatus('Call connected');
+      });
+      
+      session.on('progress', () => {
+        setWebPhoneStatus('Ringing...');
+      });
+      
+      session.on('terminated', () => {
+        console.log('Call terminated');
+        setWebPhoneStatus('Call ended');
+        setCurrentCall(null);
+      });
+      
+      session.on('rejected', () => {
+        console.log('Call rejected');
+        setWebPhoneStatus('Call rejected');
+        setCurrentCall(null);
+      });
+      
+      session.on('failed', () => {
+        console.log('Call failed');
+        setWebPhoneStatus('Call failed');
+        setCurrentCall(null);
+      });
+      
+    } catch (error: any) {
+      console.error('Failed to dial:', error);
+      setWebPhoneStatus(`Dial failed: ${error.message || 'Unknown error'}`);
+      setCurrentCall(null);
+    }
+  }, [webPhone, webPhoneReady, activeLead?.phone, currentCall]);
+
+  // Auto-dial when active lead changes (only if WebPhone is ready)
+  useEffect(() => {
+    // Only auto-dial if WebPhone is fully ready and no call is in progress
+    if (webPhone && webPhoneReady && activeLead?.phone && !currentCall) {
+      // Add a delay to ensure WebPhone is fully registered and ready
+      const timer = setTimeout(() => {
+        // Double-check conditions before dialing
+        if (webPhone && webPhoneReady && activeLead?.phone && !currentCall) {
+          handleDial();
+        }
+      }, 2000); // Wait 2 seconds after lead changes to ensure everything is ready
+      
+      return () => clearTimeout(timer);
+    }
+  }, [activeLead?.id, webPhone, webPhoneReady, currentCall, handleDial]); // Trigger when lead ID changes
 
   const fetchLeads = async () => {
     setLoading(true);
@@ -1070,32 +1417,78 @@ export default function DashboardPage() {
           {/* 3. RIGHT PANEL (THE ENGINE) */}
           <aside className="w-[400px] bg-white border-l border-slate-200 shadow-2xl z-30 flex flex-col">
             {/* Dialer UI */}
-            <div className="bg-slate-900 p-6 shadow-inner">
-              <div className="flex justify-between items-center mb-6">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></div>
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Recording Active</span>
+            <div className="bg-slate-900 shadow-inner h-[400px] overflow-hidden relative flex flex-col">
+              {/* Hidden video elements for WebRTC */}
+              <video ref={remoteVideoRef} hidden />
+              <video ref={localVideoRef} hidden muted />
+              
+              {isDownloadingRecordings && (
+                <div className="absolute inset-0 bg-slate-900/90 z-20 flex flex-col items-center justify-center text-white p-6 text-center">
+                  <i className="fa-solid fa-cloud-arrow-down text-3xl mb-4 text-blue-400 animate-bounce"></i>
+                  <p className="text-sm font-bold mb-2">Downloading Recordings...</p>
+                  <p className="text-xs text-slate-400 font-mono">{downloadProgress}</p>
                 </div>
-                <div className="text-[10px] bg-white/10 px-2 py-1 rounded font-mono text-white/60">04:32:15</div>
-              </div>
-
-              <div className="text-center mb-6">
-                <div className="text-4xl font-light text-white mb-1 tracking-tight">
-                  {activeLead ? `${activeLead.first_name} ${activeLead.last_name}` : 'No Lead Selected'}
+              )}
+              
+              {/* WebPhone Dialer UI */}
+              <div className="flex-1 flex flex-col items-center justify-center p-6 text-white">
+                <div className={`w-20 h-20 rounded-full border-2 flex items-center justify-center mb-4 transition-all ${
+                  webPhoneReady 
+                    ? 'bg-green-600/20 border-green-500/50' 
+                    : currentCall
+                    ? 'bg-blue-600/20 border-blue-500/50 animate-pulse'
+                    : 'bg-blue-600/20 border-blue-500/50'
+                }`}>
+                  <i className={`fa-solid text-3xl ${
+                    currentCall ? 'fa-phone text-blue-400' : 
+                    webPhoneReady ? 'fa-phone text-green-400' : 
+                    'fa-phone text-blue-400'
+                  }`}></i>
                 </div>
-                <div className="text-blue-400 text-sm font-medium">Post-Call Wrap Up...</div>
-              </div>
-
-              <div className="flex justify-center gap-3">
-                <button className="w-12 h-12 rounded-2xl bg-slate-800 text-slate-400 hover:text-white transition-colors flex items-center justify-center border border-white/5">
-                  <i className="fa-solid fa-microphone-slash"></i>
-                </button>
-                <button className="w-12 h-12 rounded-2xl bg-slate-800 text-slate-400 hover:text-white transition-colors flex items-center justify-center border border-white/5">
-                  <i className="fa-solid fa-pause"></i>
-                </button>
-                <button className="h-12 px-6 rounded-2xl bg-red-500/10 text-red-500 border border-red-500/20 font-bold text-sm flex items-center gap-2">
-                  <i className="fa-solid fa-phone-slash"></i> Hang Up
-                </button>
+                
+                <h3 className="text-lg font-bold mb-2">Web Phone</h3>
+                <p className="text-xs text-slate-400 mb-4 uppercase tracking-widest text-center px-4">{webPhoneStatus}</p>
+                
+                {activeLead?.phone && (
+                  <div className="text-center mb-4 w-full">
+                    <p className="text-xs text-slate-400 mb-1">Current Lead</p>
+                    <p className="text-lg font-bold">{activeLead.phone}</p>
+                    <p className="text-xs text-slate-500 mt-1">{activeLead.first_name} {activeLead.last_name}</p>
+                  </div>
+                )}
+                
+                {currentCall ? (
+                  <div className="flex gap-3 mt-4">
+                    <button
+                      onClick={() => {
+                        if (currentCall) {
+                          currentCall.hangup();
+                          setCurrentCall(null);
+                        }
+                      }}
+                      className="px-6 py-3 bg-red-600 hover:bg-red-700 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-lg"
+                    >
+                      <i className="fa-solid fa-phone-slash"></i> End Call
+                    </button>
+                  </div>
+                ) : webPhoneReady && activeLead?.phone ? (
+                  <button
+                    onClick={handleDial}
+                    disabled={!webPhoneReady || !activeLead?.phone}
+                    className="mt-4 px-8 py-3 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-lg"
+                  >
+                    <i className="fa-solid fa-phone"></i> Call {activeLead.phone}
+                  </button>
+                ) : !webPhoneReady ? (
+                  <div className="mt-4 text-center">
+                    <i className="fa-solid fa-circle-notch fa-spin text-blue-400 text-2xl"></i>
+                    <p className="text-xs text-slate-400 mt-2">Initializing...</p>
+                  </div>
+                ) : (
+                  <div className="mt-4 text-center">
+                    <p className="text-xs text-slate-400">Select a lead to call</p>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1179,7 +1572,17 @@ export default function DashboardPage() {
                   </>
                 )}
               </button>
-              <p className="text-center text-[10px] text-slate-400 mt-4 px-4 leading-relaxed">
+              <div className="flex justify-center mt-3">
+                 <button
+                    onClick={handleDownloadAllRecordings}
+                    disabled={isDownloadingRecordings}
+                    className="text-[10px] text-blue-500 hover:text-blue-700 underline flex items-center gap-1"
+                 >
+                    {isDownloadingRecordings ? <i className="fa-solid fa-spinner fa-spin"></i> : <i className="fa-solid fa-download"></i>}
+                    Download All Recordings (90 Days)
+                 </button>
+              </div>
+              <p className="text-center text-[10px] text-slate-400 mt-2 px-4 leading-relaxed">
                 Submitting will sync data, update pipeline stage, and auto-load next lead in queue.
               </p>
             </div>
