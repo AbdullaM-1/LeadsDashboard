@@ -1,38 +1,28 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import Chart from "chart.js/auto";
 import Papa from "papaparse";
+import { supabase } from "@/utils/supabase/client";
+
+// --- Types ---
+interface Metrics {
+  totalLeads: number;
+  newLeads: number;
+  qualifiedLeads: number;
+  discardedLeads: number;
+  pendingLeads: number;
+  todayCount: number;
+  conversionRate: number;
+  growth: number;
+  dailyVolume: { label: string; count: number }[];
+}
 
 // --- Components ---
 
-function Sidebar() {
-  return (
-    <aside className="w-20 border-r border-slate-100 bg-white flex flex-col items-center py-8 gap-10">
-      <div className="w-12 h-12 bg-slate-900 rounded-2xl flex items-center justify-center text-white shadow-xl shadow-slate-200">
-        <i className="fa-solid fa-cube text-xl"></i>
-      </div>
-      <nav className="flex flex-col gap-6 text-slate-400">
-        <a href="#" className="text-indigo-600">
-          <i className="fa-solid fa-house-chimney text-xl"></i>
-        </a>
-        <a href="#" className="hover:text-slate-900 transition">
-          <i className="fa-solid fa-chart-simple text-xl"></i>
-        </a>
-        <a href="#" className="hover:text-slate-900 transition">
-          <i className="fa-solid fa-compass text-xl"></i>
-        </a>
-        <a href="#" className="hover:text-slate-900 transition">
-          <i className="fa-solid fa-gear text-xl"></i>
-        </a>
-      </nav>
-    </aside>
-  );
-}
 
-function Header() {
+function Header({ isUploading, setIsUploading }: { isUploading: boolean; setIsUploading: (v: boolean) => void }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [isUploading, setIsUploading] = useState(false);
 
   const handleImportClick = () => {
     fileInputRef.current?.click();
@@ -48,10 +38,6 @@ function Header() {
         header: true,
         skipEmptyLines: true,
         complete: async (results) => {
-          console.log("Parsed CSV rows:", results.data.length);
-          console.log("First parsed row:", results.data[0]);
-          console.log("CSV errors:", results.errors);
-
           if (!results.data || results.data.length === 0) {
             alert("No data found in CSV file. Please check the file format.");
             setIsUploading(false);
@@ -61,41 +47,28 @@ function Header() {
           try {
             const response = await fetch("/api/leads/import", {
               method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
+              headers: { "Content-Type": "application/json" },
               body: JSON.stringify(results.data),
             });
 
             const data = await response.json();
-            console.log("Import result:", data);
-
             if (data.success) {
-              const message = `Import complete!\nProcessed: ${data.processed}\nFailed: ${data.failed}${
-                data.errors && data.errors.length > 0
-                  ? `\n\nErrors:\n${data.errors
-                      .slice(0, 5)
-                      .map((e: any) => `Row ${e.row}: ${e.error}`)
-                      .join("\n")}`
-                  : ""
-              }`;
-              alert(message);
+              alert(`Import complete! Processed: ${data.processed}`);
+              window.location.reload();
             } else {
-              alert(
-                `Import failed: ${data.error || "Unknown error"}\n\nCheck console for details.`
-              );
+              alert(`Import failed: ${data.error || "Unknown error"}`);
             }
           } catch (error) {
             console.error("Upload error:", error);
-            alert(`Error uploading leads: ${error instanceof Error ? error.message : "Unknown error"}`);
+            alert("Error uploading leads.");
           } finally {
             setIsUploading(false);
-            if (fileInputRef.current) fileInputRef.current.value = ""; // Reset input
+            if (fileInputRef.current) fileInputRef.current.value = "";
           }
         },
         error: (error) => {
           console.error("CSV Parse Error:", error);
-          alert(`Failed to parse CSV file: ${error.message || "Unknown error"}`);
+          alert("Failed to parse CSV file.");
           setIsUploading(false);
         },
       });
@@ -103,7 +76,7 @@ function Header() {
   };
 
   return (
-    <header className="max-w-7xl mx-auto flex justify-between items-end mb-16">
+    <header className="max-w-7xl mx-auto flex justify-between items-end mb-16 px-4 sm:px-0">
       <div>
         <div className="flex items-center gap-3 mb-3">
           <span className="px-2 py-0.5 bg-emerald-50 text-emerald-600 text-[10px] font-black uppercase tracking-widest rounded-md border border-emerald-100">
@@ -114,11 +87,17 @@ function Header() {
             Integrated Financial
           </span>
         </div>
-        <h1 className="text-5xl font-black tracking-tight text-slate-900">
+        <h1 className="text-5xl font-black tracking-tight text-slate-900 leading-tight">
           Integrated Financial <span className="font-extralight italic">OS</span>
         </h1>
       </div>
       <div className="flex gap-4">
+        <a
+          href="/dashboard"
+          className="px-6 py-3 bg-indigo-600 text-white rounded-2xl text-xs font-bold shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition flex items-center gap-2"
+        >
+          <i className="fa-solid fa-headset"></i> Open Dialer
+        </a>
         <button className="px-6 py-3 bg-white border border-slate-200 rounded-2xl text-xs font-bold shadow-sm hover:bg-slate-50 transition">
           Export PDF
         </button>
@@ -132,9 +111,8 @@ function Header() {
         <button
           onClick={handleImportClick}
           disabled={isUploading}
-          className={`px-6 py-3 bg-slate-900 text-white rounded-2xl text-xs font-bold shadow-lg shadow-slate-200 hover:scale-105 transition flex items-center gap-2 ${
-            isUploading ? "opacity-75 cursor-wait" : ""
-          }`}
+          className={`px-6 py-3 bg-slate-900 text-white rounded-2xl text-xs font-bold shadow-lg shadow-slate-200 hover:scale-105 transition flex items-center gap-2 ${isUploading ? "opacity-75 cursor-wait" : ""
+            }`}
         >
           {isUploading && <i className="fa-solid fa-circle-notch fa-spin"></i>}
           {isUploading ? "Importing..." : "Import Leads"}
@@ -144,7 +122,7 @@ function Header() {
   );
 }
 
-function ExecutiveLeadIndex() {
+function ExecutiveLeadIndex({ totalLeads, conversionRate, growth }: { totalLeads: number; conversionRate: number; growth: number }) {
   return (
     <div className="glass-panel lg:col-span-7 p-12 rounded-[3.5rem] relative overflow-hidden group">
       <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-50 rounded-full blur-[100px] opacity-40 -mr-20 -mt-20"></div>
@@ -154,10 +132,12 @@ function ExecutiveLeadIndex() {
         </h3>
         <div className="flex items-end gap-6">
           <span className="text-9xl font-black tracking-tighter text-slate-900">
-            4,290
+            {totalLeads.toLocaleString()}
           </span>
           <div className="mb-4">
-            <p className="text-emerald-500 font-black text-xl">+12.4%</p>
+            <p className={`font-black text-xl ${growth >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+              {growth >= 0 ? '+' : ''}{growth}%
+            </p>
             <p className="text-slate-400 text-[10px] font-bold uppercase">
               vs. Forecast
             </p>
@@ -168,7 +148,7 @@ function ExecutiveLeadIndex() {
             <p className="text-[10px] font-black text-slate-400 uppercase mb-1">
               Conversion
             </p>
-            <p className="text-2xl font-bold">34.2%</p>
+            <p className="text-2xl font-bold">{conversionRate}%</p>
           </div>
           <div>
             <p className="text-[10px] font-black text-slate-400 uppercase mb-1">
@@ -180,7 +160,7 @@ function ExecutiveLeadIndex() {
             <p className="text-[10px] font-black text-slate-400 uppercase mb-1">
               Market Cap
             </p>
-            <p className="text-2xl font-bold">$2.4M</p>
+            <p className="text-2xl font-bold">${(totalLeads * 560 / 1000000).toFixed(1)}M</p>
           </div>
         </div>
       </div>
@@ -188,7 +168,7 @@ function ExecutiveLeadIndex() {
   );
 }
 
-function SecondaryBreakdown() {
+function SecondaryBreakdown({ metrics }: { metrics: Metrics }) {
   return (
     <div className="lg:col-span-5 grid grid-cols-2 gap-6">
       {/* New Leads */}
@@ -200,9 +180,9 @@ function SecondaryBreakdown() {
           <span className="text-[10px] font-black text-blue-500">NEW</span>
         </div>
         <div>
-          <h4 className="text-4xl font-black text-slate-900">184</h4>
+          <h4 className="text-4xl font-black text-slate-900">{metrics.newLeads}</h4>
           <p className="text-xs text-slate-400 font-medium mt-1">
-            Incoming today
+            {metrics.todayCount > 0 ? `+${metrics.todayCount} Incoming today` : 'No incoming today'}
           </p>
         </div>
       </div>
@@ -217,7 +197,7 @@ function SecondaryBreakdown() {
           </span>
         </div>
         <div>
-          <h4 className="text-4xl font-black text-slate-900">2,105</h4>
+          <h4 className="text-4xl font-black text-slate-900">{metrics.qualifiedLeads}</h4>
           <p className="text-xs text-slate-400 font-medium mt-1">
             Verified prospects
           </p>
@@ -231,14 +211,14 @@ function SecondaryBreakdown() {
         </div>
         <div>
           <h4 className="text-4xl font-black text-slate-900 opacity-30">
-            342
+            {metrics.discardedLeads}
           </h4>
           <p className="text-xs text-slate-400 font-medium mt-1">
             Out of criteria
           </p>
         </div>
       </div>
-      {/* Call-Back */}
+      {/* Pending */}
       <div className="glass-panel p-8 rounded-[2.5rem] flex flex-col justify-between bg-slate-900 border-none group">
         <div className="flex justify-between items-center">
           <div className="w-10 h-10 bg-white/10 text-amber-400 rounded-xl flex items-center justify-center">
@@ -250,7 +230,7 @@ function SecondaryBreakdown() {
         </div>
         <div>
           <h4 className="text-4xl font-black text-white tracking-tighter">
-            84
+            {metrics.pendingLeads}
           </h4>
           <p className="text-xs text-slate-500 font-medium mt-1">
             Needs action
@@ -261,7 +241,7 @@ function SecondaryBreakdown() {
   );
 }
 
-function VelocityMap() {
+function VelocityMap({ data }: { data: { label: string; count: number }[] }) {
   const chartRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -276,19 +256,11 @@ function VelocityMap() {
         chart = new Chart(ctx, {
           type: "line",
           data: {
-            labels: [
-              "Monday",
-              "Tuesday",
-              "Wednesday",
-              "Thursday",
-              "Friday",
-              "Saturday",
-              "Sunday",
-            ],
+            labels: data.map(d => d.label),
             datasets: [
               {
                 label: "Leads Received",
-                data: [210, 350, 290, 540, 480, 720, 680],
+                data: data.map(d => d.count),
                 borderColor: "#6366f1",
                 borderWidth: 8,
                 tension: 0.5,
@@ -331,7 +303,7 @@ function VelocityMap() {
       }
     }
     return () => chart?.destroy();
-  }, []);
+  }, [data]);
 
   return (
     <div className="glass-panel lg:col-span-8 p-12 rounded-[3.5rem]">
@@ -360,7 +332,7 @@ function VelocityMap() {
   );
 }
 
-function FunnelAnatomy() {
+function FunnelAnatomy({ metrics }: { metrics: Metrics }) {
   const chartRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -374,7 +346,7 @@ function FunnelAnatomy() {
             labels: ["Qualified", "New", "Trash", "Pending"],
             datasets: [
               {
-                data: [2105, 1284, 342, 84],
+                data: [metrics.qualifiedLeads, metrics.newLeads, metrics.discardedLeads, metrics.pendingLeads],
                 backgroundColor: ["#6366f1", "#3b82f6", "#f1f5f9", "#f59e0b"],
                 borderWidth: 0,
                 borderRadius: 30,
@@ -398,7 +370,7 @@ function FunnelAnatomy() {
       }
     }
     return () => chart?.destroy();
-  }, []);
+  }, [metrics]);
 
   return (
     <div className="glass-panel lg:col-span-4 p-12 rounded-[3.5rem] flex flex-col">
@@ -413,7 +385,7 @@ function FunnelAnatomy() {
         <canvas ref={chartRef}></canvas>
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
           <p className="text-5xl font-black text-slate-900 tracking-tighter">
-            98.2%
+            {((metrics.qualifiedLeads / (metrics.totalLeads || 1)) * 100).toFixed(1)}%
           </p>
           <p className="text-[10px] font-black text-indigo-500 uppercase tracking-widest">
             Integrity
@@ -426,57 +398,115 @@ function FunnelAnatomy() {
           <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
             Avg Response Time
           </span>
-          <span className="text-sm font-black text-slate-900">4.2m</span>
+          <span className="text-sm font-black text-slate-900">2.1m</span>
         </div>
         <div className="flex items-center justify-between p-5 bg-indigo-600 rounded-[2rem] shadow-xl shadow-indigo-100">
           <span className="text-[10px] font-black text-indigo-100 uppercase tracking-widest">
             Conversion Rate
           </span>
-          <span className="text-sm font-black text-white">42.8%</span>
+          <span className="text-sm font-black text-white">{metrics.conversionRate}%</span>
         </div>
       </div>
     </div>
   );
 }
 
-// --- Main Page ---
-
 export default function Home() {
+  const [metrics, setMetrics] = useState<Metrics>({
+    totalLeads: 0,
+    newLeads: 0,
+    qualifiedLeads: 0,
+    discardedLeads: 0,
+    pendingLeads: 0,
+    todayCount: 0,
+    conversionRate: 0,
+    growth: 0,
+    dailyVolume: [],
+  });
+  const [isUploading, setIsUploading] = useState(false);
+
+  useEffect(() => {
+    const fetchDashboardMetrics = async () => {
+      try {
+        // Fetch all leads for calculation
+        const { data: leads, error } = await supabase.from("leads").select("status, created_at");
+        if (error) throw error;
+
+        const total = leads.length;
+        const now = new Date();
+
+        // Calculate daily volume for last 7 days
+        const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+        const last7Days: { label: string; count: number }[] = [];
+
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date();
+          d.setDate(d.getDate() - i);
+          const dayName = days[d.getDay()];
+          const dateStr = d.toISOString().split('T')[0];
+
+          const count = leads.filter(l => l.created_at.startsWith(dateStr)).length;
+          last7Days.push({ label: i === 0 ? "Today" : dayName, count });
+        }
+
+        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+        const startOfYesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).toISOString();
+
+        const todayLeads = leads.filter(l => l.created_at >= startOfToday);
+        const yesterdayLeads = leads.filter(l => l.created_at >= startOfYesterday && l.created_at < startOfToday);
+
+        const newCount = leads.filter(l => l.status === "New").length;
+        const qualifiedCount = leads.filter(l => ["Qualified", "Qualified Lead"].includes(l.status)).length;
+        const discardedCount = leads.filter(l => ["Not Interested", "Do Not Call", "W# (Wrong Number)"].includes(l.status)).length;
+        const pendingCount = leads.filter(l => ["Call Back", "Voice Mail", "Left Voice Mail"].includes(l.status)).length;
+
+        const conversion = total > 0 ? (qualifiedCount / total) * 100 : 0;
+
+        // Growth calculation: today vs yesterday
+        const growthValue = yesterdayLeads.length > 0
+          ? ((todayLeads.length - yesterdayLeads.length) / yesterdayLeads.length) * 100
+          : todayLeads.length > 0 ? 100 : 0;
+
+        setMetrics({
+          totalLeads: total,
+          newLeads: newCount,
+          qualifiedLeads: qualifiedCount,
+          discardedLeads: discardedCount,
+          pendingLeads: pendingCount,
+          todayCount: todayLeads.length,
+          conversionRate: Math.round(conversion * 10) / 10,
+          growth: Math.round(growthValue * 10) / 10,
+          dailyVolume: last7Days,
+        });
+      } catch (err) {
+        console.error("Error fetching metrics:", err);
+      }
+    };
+
+    fetchDashboardMetrics();
+  }, []);
+
   return (
     <div className="antialiased text-slate-900 min-h-screen flex bg-[#FBFBFC]" style={{ fontFamily: "var(--font-geist-sans), 'Inter', sans-serif" }}>
       <div className="grain"></div>
 
-      <Sidebar />
 
       <main className="flex-1 p-8 lg:p-14 overflow-y-auto">
-        <Header />
+        <Header isUploading={isUploading} setIsUploading={setIsUploading} />
 
         <div className="max-w-7xl mx-auto">
           {/* Metrics Architecture (Nested Grid) */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 mb-12">
-            <ExecutiveLeadIndex />
-            <SecondaryBreakdown />
+            <ExecutiveLeadIndex totalLeads={metrics.totalLeads} conversionRate={metrics.conversionRate} growth={metrics.growth} />
+            <SecondaryBreakdown metrics={metrics} />
           </div>
 
-          {/* Data Visualization Mastery */}
+          {/* Data Visualization */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-            <VelocityMap />
-            <FunnelAnatomy />
+            <VelocityMap data={metrics.dailyVolume} />
+            <FunnelAnatomy metrics={metrics} />
           </div>
 
-          {/* RingCentral Widget */}
-          <div className="mt-8 flex justify-end">
-            <div className="glass-panel p-6 rounded-[2rem]">
-              <iframe
-                width="300"
-                height="500"
-                id="rc-widget"
-                allow="autoplay; microphone"
-                src="https://apps.ringcentral.com/integration/ringcentral-embeddable/latest/app.html"
-                className="rounded-xl"
-              ></iframe>
-            </div>
-          </div>
         </div>
       </main>
     </div>
