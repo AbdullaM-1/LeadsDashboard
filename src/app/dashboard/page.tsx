@@ -154,23 +154,30 @@ const formatStatusForDisplay = (status?: string | null) => {
 
 function MetricCard({ title, value, subtext, icon, trend, colorClass }: { title: string; value: string | number; subtext: string; icon: string; trend?: { value: number; positive: boolean }; colorClass: string }) {
   return (
-    <div className="glass-panel p-6 px-8 rounded-[2rem] flex flex-col justify-between group transition-all hover:translate-y-[-4px]">
-      <div className="flex justify-between items-start mb-4">
-        <div className={`w-12 h-12 ${colorClass} rounded-2xl flex items-center justify-center text-lg shadow-sm group-hover:shadow-md transition-all`}>
+    <div className="glass-card-premium p-7 rounded-[2.5rem] flex flex-col justify-between h-full group relative overflow-hidden">
+      <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50/50 rounded-full blur-3xl -mr-16 -mt-16 group-hover:bg-indigo-100/50 transition-colors"></div>
+      <div className="relative z-10 flex justify-between items-start mb-6">
+        <div className={`w-14 h-14 ${colorClass} rounded-2xl flex items-center justify-center text-xl shadow-lg shadow-blue-900/5 transition-transform group-hover:scale-110 duration-500`}>
           <i className={`fa-solid ${icon}`}></i>
         </div>
         {trend && (
-          <span className={`text-[10px] font-black px-2 py-1 rounded-lg ${trend.positive ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+          <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold text-[10px] ${trend.positive ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+            <span className="flex h-1.5 w-1.5 rounded-full bg-current animate-pulse"></span>
             {trend.positive ? '↑' : '↓'} {Math.abs(trend.value)}%
-          </span>
+          </div>
         )}
       </div>
-      <div>
-        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">{title}</h4>
-        <span className="text-3xl font-black text-slate-900 tracking-tight">{value}</span>
-        <p className="text-[10px] text-slate-500 font-medium mt-1 uppercase tracking-tight line-clamp-1 opacity-70">
-          {subtext}
-        </p>
+      <div className="relative z-10">
+        <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-[0.15em] mb-2">{title}</h4>
+        <div className="flex items-baseline gap-2">
+          <span className="text-4xl font-black text-slate-900 tracking-tighter">{value}</span>
+        </div>
+        <div className="mt-4 pt-4 border-t border-slate-100/50">
+          <p className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider line-clamp-1 flex items-center gap-2">
+            <i className="fa-solid fa-circle-info text-[8px] opacity-40"></i>
+            {subtext}
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -189,18 +196,18 @@ function IntelligenceHeatmap({ data }: { data: { hour: number; count: number }[]
             labels: data.map(d => `${d.hour}:00`),
             datasets: [{
               data: data.map(d => d.count),
-              backgroundColor: "#4F46E5",
-              borderRadius: 4,
-              hoverBackgroundColor: "#4338CA",
+              backgroundColor: "rgba(79, 70, 229, 0.8)",
+              borderRadius: 6,
+              hoverBackgroundColor: "rgba(79, 70, 229, 1)",
             }],
           },
           options: {
             responsive: true,
             maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
+            plugins: { legend: { display: false }, tooltip: { enabled: true, backgroundColor: '#0f172a', titleFont: { size: 10 }, bodyFont: { size: 10 }, padding: 10, cornerRadius: 10 } },
             scales: {
               y: { beginAtZero: true, grid: { display: false }, ticks: { display: false } },
-              x: { grid: { display: false }, ticks: { font: { size: 8 } } },
+              x: { grid: { display: false }, ticks: { font: { size: 9, weight: 'bold' }, color: '#94a3b8' } },
             },
           },
         });
@@ -209,19 +216,24 @@ function IntelligenceHeatmap({ data }: { data: { hour: number; count: number }[]
     return () => chart?.destroy();
   }, [data]);
 
-  if (!data || data.length === 0) {
-    return (
-      <div className="glass-panel p-8 rounded-[2.5rem]">
-        <h3 className="text-sm font-black text-slate-900 tracking-tight mb-6">Interaction Density (Today)</h3>
-        <div className="h-[120px] flex items-center justify-center text-slate-400 text-xs">No data available</div>
-      </div>
-    );
-  }
-
   return (
-    <div className="glass-panel p-8 rounded-[2.5rem]">
-      <h3 className="text-sm font-black text-slate-900 tracking-tight mb-6">Interaction Density (Today)</h3>
-      <div className="h-[120px]"><canvas ref={chartRef}></canvas></div>
+    <div className="glass-card-premium p-8 rounded-[2.5rem] flex flex-col h-full">
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h3 className="text-sm font-black text-slate-900 tracking-tight uppercase">Interaction Density</h3>
+          <p className="text-[10px] text-slate-400 font-bold mt-0.5">Live Engagement Mapping</p>
+        </div>
+        <div className="flex gap-1.5">
+          <div className="w-1.5 h-1.5 rounded-full bg-indigo-500"></div>
+          <div className="w-1.5 h-1.5 rounded-full bg-indigo-300"></div>
+          <div className="w-1.5 h-1.5 rounded-full bg-indigo-100"></div>
+        </div>
+      </div>
+      {!data || data.length === 0 ? (
+        <div className="flex-1 flex items-center justify-center text-slate-400 text-xs font-bold uppercase tracking-widest italic">Streaming next data segment...</div>
+      ) : (
+        <div className="flex-1 min-h-[140px]"><canvas ref={chartRef}></canvas></div>
+      )}
     </div>
   );
 }
@@ -272,9 +284,17 @@ function VelocityMap({ data }: { data: { label: string; count: number }[] }) {
   }, [data]);
 
   return (
-    <div className="glass-panel p-8 rounded-[2.5rem] flex-1">
-      <h3 className="text-sm font-black text-slate-900 tracking-tight mb-6">Capture Velocity</h3>
-      <div className="h-[200px]"><canvas ref={chartRef}></canvas></div>
+    <div className="glass-card-premium p-8 rounded-[2.5rem] flex-1 min-h-[380px] flex flex-col h-full text-left">
+      <div className="flex items-center justify-between mb-10">
+        <div>
+          <h3 className="text-base font-black text-slate-900 tracking-tight uppercase">Capture Velocity</h3>
+          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Acquisition Index (7D)</p>
+        </div>
+        <div className="px-4 py-2 bg-slate-50 rounded-2xl border border-slate-100">
+          <span className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Real-time Feed</span>
+        </div>
+      </div>
+      <div className="flex-1"><canvas ref={chartRef}></canvas></div>
     </div>
   );
 }
@@ -312,25 +332,28 @@ function FunnelAnatomy({ metrics }: { metrics: any }) {
   }, [metrics]);
 
   return (
-    <div className="glass-panel p-8 rounded-[2.5rem] w-[300px]">
-      <h3 className="text-sm font-black text-slate-900 tracking-tight mb-6">Portfolio</h3>
-      <div className="relative h-[150px]">
+    <div className="glass-card-premium p-8 rounded-[2.5rem] w-full lg:w-[320px] shrink-0 flex flex-col h-full text-left">
+      <div className="mb-8">
+        <h3 className="text-base font-black text-slate-900 tracking-tight uppercase">Portfolio</h3>
+        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Yield Segmentation</p>
+      </div>
+      <div className="relative flex-1 min-h-[180px] mb-8">
         <canvas ref={chartRef}></canvas>
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-          <p className="text-2xl font-black text-slate-900 tracking-tighter">
-            {Math.round((metrics.qualifiedLeads / (metrics.totalLeads || 1)) * 100)}%
+          <p className="text-4xl font-black text-slate-900 tracking-tighter text-center">
+            {metrics.totalLeads > 0 ? Math.round((metrics.qualifiedLeads / metrics.totalLeads) * 100) : 0}%
           </p>
-          <p className="text-[8px] font-black text-indigo-500 uppercase">Yield</p>
+          <p className="text-[9px] font-black text-indigo-500 uppercase tracking-widest">Global Yield</p>
         </div>
       </div>
-      <div className="flex justify-between mt-6 pt-6 border-t border-slate-50">
-        <div className="text-center">
-          <p className="text-[8px] font-black text-slate-400 uppercase">Rate</p>
-          <p className="text-xs font-black text-slate-900">{metrics.conversionRate}%</p>
+      <div className="grid grid-cols-2 gap-3 pt-6 border-t border-slate-100">
+        <div className="bg-slate-50/80 p-4 rounded-3xl border border-slate-100 flex flex-col items-center">
+          <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 text-center">Conversion</p>
+          <p className="text-sm font-black text-slate-900 tracking-tight">{metrics.conversionRate}%</p>
         </div>
-        <div className="text-center">
-          <p className="text-[8px] font-black text-slate-400 uppercase">Target</p>
-          <p className="text-xs font-black text-white">12%</p>
+        <div className="bg-slate-900 p-4 rounded-3xl flex flex-col items-center">
+          <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1 text-center">Target</p>
+          <p className="text-sm font-black text-white tracking-tight">12.0%</p>
         </div>
       </div>
     </div>
@@ -386,8 +409,15 @@ export default function DashboardPage() {
   const [isPowerDialing, setIsPowerDialing] = useState(false);
   const [powerDialingIndex, setPowerDialingIndex] = useState(0);
   const [powerDialingLeads, setPowerDialingLeads] = useState<Lead[]>([]);
+  // CRITICAL: Store the fixed snapshot in a ref - this is the IMMUTABLE queue that never changes
+  // This ref holds the original snapshot taken when power dialing starts
+  const powerDialingQueueSnapshotRef = useRef<Lead[]>([]);
   const [leadActivities, setLeadActivities] = useState<any[]>([]);
   const [callStartTime, setCallStartTime] = useState<Date | null>(null);
+  // Flag to prevent useEffect from auto-advancing when we're manually moving to next lead
+  const isManuallyAdvancingRef = useRef(false);
+  // Ref to track current call state (for use in closures)
+  const currentCallRef = useRef<any>(null);
 
   // Overview Metrics State
   const [metrics, setMetrics] = useState({
@@ -707,6 +737,7 @@ export default function DashboardPage() {
           console.log('Incoming call!');
           setWebPhoneStatus('Incoming call...');
           setCurrentCall(session);
+          currentCallRef.current = session;
 
           session.accept().then(() => {
             console.log('Call accepted');
@@ -741,6 +772,7 @@ export default function DashboardPage() {
 
             setCallStartTime(null);
             setCurrentCall(null);
+            currentCallRef.current = null;
           });
         });
 
@@ -905,6 +937,7 @@ export default function DashboardPage() {
 
         setCallStartTime(null);
         setCurrentCall(null);
+        currentCallRef.current = null;
       });
 
       session.on('rejected', () => {
@@ -927,6 +960,7 @@ export default function DashboardPage() {
 
         setCallStartTime(null);
         setCurrentCall(null);
+        currentCallRef.current = null;
       });
 
       session.on('failed', () => {
@@ -949,6 +983,7 @@ export default function DashboardPage() {
 
         setCallStartTime(null);
         setCurrentCall(null);
+        currentCallRef.current = null;
       });
 
     } catch (error: any) {
@@ -956,6 +991,7 @@ export default function DashboardPage() {
       setWebPhoneStatus(`Dial failed: ${error.message || 'Unknown error'}`);
       isDialingRef.current = false;
       setCurrentCall(null);
+      currentCallRef.current = null;
     }
   }, [webPhone, webPhoneReady, activeLead, currentCall, callStartTime]);
 
@@ -971,6 +1007,9 @@ export default function DashboardPage() {
       setIsPowerDialing(false);
       setPowerDialingIndex(0);
       setPowerDialingLeads([]);
+      powerDialingQueueSnapshotRef.current = []; // Clear the snapshot
+      isManuallyAdvancingRef.current = false; // Clear the flag
+      isManuallyAdvancingRef.current = false; // Clear the flag
       if (currentCall) {
         try {
           const session = currentCall as any;
@@ -995,6 +1034,7 @@ export default function DashboardPage() {
           console.error('Error hanging up:', e);
           // Clear state on error
           setCurrentCall(null);
+          currentCallRef.current = null;
           setCallStartTime(null);
         }
       }
@@ -1151,11 +1191,16 @@ export default function DashboardPage() {
       console.log('Power dialer - Created FIXED queue with', fixedPowerDialingQueue.length, 'leads');
       console.log('Power dialer - Queue lead IDs:', fixedPowerDialingQueue.map(l => l.id));
 
+      // CRITICAL: Store the snapshot in BOTH state and ref
+      // The ref is the IMMUTABLE source of truth that never changes
+      // The state is used for display and can be updated (only lead properties, not array length)
+      powerDialingQueueSnapshotRef.current = [...fixedPowerDialingQueue]; // Deep copy into ref
       setIsPowerDialing(true);
-      // Set the fixed queue - this array will remain unchanged in length throughout the session
-      setPowerDialingLeads(fixedPowerDialingQueue);
+      setPowerDialingLeads([...fixedPowerDialingQueue]); // Also set in state for display
       setPowerDialingIndex(0);
       setLoading(false);
+
+      console.log('Power dialer - Snapshot stored in ref. Length:', powerDialingQueueSnapshotRef.current.length);
 
       // Switch to dialer view
       setActiveView('dialer');
@@ -1221,6 +1266,7 @@ export default function DashboardPage() {
 
               setCallStartTime(null);
               setCurrentCall(null);
+              currentCallRef.current = null;
             });
 
             session.on('rejected', () => {
@@ -1244,6 +1290,7 @@ export default function DashboardPage() {
 
               setCallStartTime(null);
               setCurrentCall(null);
+              currentCallRef.current = null;
             });
 
             session.on('failed', () => {
@@ -1267,11 +1314,13 @@ export default function DashboardPage() {
 
               setCallStartTime(null);
               setCurrentCall(null);
+              currentCallRef.current = null;
             });
           } catch (error: any) {
             console.error('Failed to dial:', error);
             setWebPhoneStatus(`Dial failed: ${error.message || 'Unknown error'}`);
             setCurrentCall(null);
+            currentCallRef.current = null;
           }
         }
       }, 2000);
@@ -1285,34 +1334,70 @@ export default function DashboardPage() {
 
   // Move to next lead after call ends (when power dialing)
   useEffect(() => {
-    if (isPowerDialing && !currentCall && powerDialingLeads.length > 0 && powerDialingIndex < powerDialingLeads.length && webPhone && webPhoneReady) {
-      // Call just ended, wait a moment then move to next lead
+    // Only check flag at the start - if it's set, skip this run
+    // But allow it to proceed if flag gets cleared during the timeout
+    const wasManuallyAdvancing = isManuallyAdvancingRef.current;
+    
+    if (isPowerDialing && !currentCall && powerDialingQueueSnapshotRef.current.length > 0 && powerDialingIndex < powerDialingQueueSnapshotRef.current.length && webPhone && webPhoneReady) {
+      // If we were manually advancing, wait a bit longer to see if it completes
+      const delay = wasManuallyAdvancing ? 1000 : 3000;
+      
+      // Call just ended naturally (not from manual advancement), wait a moment then move to next lead
       const timer = setTimeout(() => {
+        // Check flag again - if it's still set, skip (manual advancement is in progress)
+        // But if it was cleared, proceed with auto-advance
+        if (isManuallyAdvancingRef.current) {
+          console.log('useEffect: Skipping auto-advance - manual advancement still in progress');
+          return;
+        }
+        
+        // If flag was set but is now cleared, it means manual advancement completed and dial started
+        // The currentCall check below will prevent duplicate dialing, so we can proceed
+        if (wasManuallyAdvancing && isManuallyAdvancingRef.current === false) {
+          console.log('useEffect: Manual advancement completed, proceeding with auto-advance (currentCall check will prevent duplicates)');
+        }
+        // CRITICAL: Use the IMMUTABLE snapshot from ref - this is the source of truth
+        const snapshot = powerDialingQueueSnapshotRef.current;
         const nextIndex = powerDialingIndex + 1;
+        console.log('useEffect: Moving to next lead. Index:', nextIndex, 'Snapshot length:', snapshot.length);
 
-        // IMPORTANT: Use the current powerDialingLeads from the dependency array
-        // This ensures we're working with the latest array state
-        if (nextIndex < powerDialingLeads.length) {
+        if (nextIndex < snapshot.length) {
           setPowerDialingIndex(nextIndex);
-          const nextLead = powerDialingLeads[nextIndex];
+          // Get lead from the IMMUTABLE snapshot
+          const nextLead = snapshot[nextIndex];
           if (!nextLead) {
-            console.error('Next lead not found at index', nextIndex, 'in powerDialingLeads array of length', powerDialingLeads.length);
+            console.error('Next lead not found at index', nextIndex, 'in snapshot array of length', snapshot.length);
             setIsPowerDialing(false);
             setPowerDialingLeads([]);
+            powerDialingQueueSnapshotRef.current = [];
+            isManuallyAdvancingRef.current = false; // Clear the flag
             setWebPhoneStatus('Error: Lead not found in queue');
             return;
           }
+          console.log('useEffect: Setting next lead from snapshot:', nextLead.id);
           setActiveLead(nextLead);
 
           // Dial next lead after a short delay
           setTimeout(() => {
-            if (nextLead?.phone && webPhone && webPhoneReady) {
+            // Clear the flag when dial starts (in case it was set from manual advancement)
+            isManuallyAdvancingRef.current = false;
+            
+            // Double-check conditions before dialing - use ref to get latest currentCall value
+            const hasActiveCall = currentCallRef.current !== null;
+            if (nextLead?.phone && webPhone && webPhoneReady && !hasActiveCall && isPowerDialing) {
               try {
-                setWebPhoneStatus(`Dialing ${nextLead.phone}... (${nextIndex + 1}/${powerDialingLeads.length})`);
+                // Use snapshot length for accurate count
+                const snapshot = powerDialingQueueSnapshotRef.current;
+                setWebPhoneStatus(`Dialing ${nextLead.phone}... (${nextIndex + 1}/${snapshot.length})`);
+                console.log(`useEffect: Dialing lead ${nextIndex + 1} of ${snapshot.length} from snapshot`);
+                console.log('useEffect: Conditions check - phone:', !!nextLead.phone, 'webPhone:', !!webPhone, 'webPhoneReady:', webPhoneReady, 'hasActiveCall:', hasActiveCall, 'isPowerDialing:', isPowerDialing);
                 const cleanNumber = nextLead.phone.replace(/\D/g, '');
+                
                 // Ensure video elements are accessible
-                if (remoteVideoRef.current && localVideoRef.current) {
-                  // Elements exist, proceed with call
+                if (!remoteVideoRef.current || !localVideoRef.current) {
+                  console.error('useEffect: Video elements not available');
+                  setWebPhoneStatus('Error: Media elements not ready');
+                  return;
                 }
 
                 const session = webPhone.userAgent.invite(cleanNumber, {
@@ -1320,6 +1405,7 @@ export default function DashboardPage() {
                 });
 
                 setCurrentCall(session);
+                currentCallRef.current = session;
 
                 session.on('accepted', () => {
                   setWebPhoneStatus('Call connected');
@@ -1358,6 +1444,7 @@ export default function DashboardPage() {
 
                   setCallStartTime(null);
                   setCurrentCall(null);
+                currentCallRef.current = null;
                 });
 
                 session.on('rejected', () => {
@@ -1381,6 +1468,7 @@ export default function DashboardPage() {
 
                   setCallStartTime(null);
                   setCurrentCall(null);
+                currentCallRef.current = null;
                 });
 
                 session.on('failed', () => {
@@ -1404,21 +1492,40 @@ export default function DashboardPage() {
 
                   setCallStartTime(null);
                   setCurrentCall(null);
+                currentCallRef.current = null;
                 });
               } catch (error: any) {
-                console.error('Failed to dial:', error);
+                console.error('useEffect: Failed to dial:', error);
                 setWebPhoneStatus(`Dial failed: ${error.message || 'Unknown error'}`);
                 setCurrentCall(null);
+                currentCallRef.current = null;
+                isManuallyAdvancingRef.current = false; // Clear flag on error
               }
+            } else {
+              console.warn('useEffect: Auto-dial conditions not met - call not started:', {
+                hasPhone: !!nextLead?.phone,
+                phone: nextLead?.phone,
+                hasWebPhone: !!webPhone,
+                webPhoneReady,
+                hasCurrentCall: !!currentCall,
+                isPowerDialing,
+                nextIndex,
+                snapshotLength: powerDialingQueueSnapshotRef.current.length
+              });
+              // Clear flag if conditions aren't met
+              isManuallyAdvancingRef.current = false;
             }
           }, 2000);
         } else {
           // Finished all leads
+          const totalDialed = powerDialingQueueSnapshotRef.current.length;
           setIsPowerDialing(false);
           setPowerDialingIndex(0);
           setPowerDialingLeads([]);
+          powerDialingQueueSnapshotRef.current = [];
+          isManuallyAdvancingRef.current = false; // Clear the flag
           setWebPhoneStatus('Power dialing complete');
-          alert(`Power dialing complete! Dialed ${powerDialingLeads.length} leads.`);
+          alert(`Power dialing complete! Dialed ${totalDialed} leads.`);
         }
       }, 3000); // Wait 3 seconds after call ends before next dial
 
@@ -1970,32 +2077,77 @@ export default function DashboardPage() {
           // CRITICAL: Update the lead in powerDialingLeads array to keep it in sync
           // This ONLY updates the lead data, NEVER changes the array length or order
           // The powerDialingLeads array is a FIXED queue created at session start and remains independent
-          if (isPowerDialing && powerDialingLeads.length > 0) {
-            setPowerDialingLeads(prevLeads => {
-              const originalLength = prevLeads.length;
-              const updated = prevLeads.map(lead =>
-                lead.id === activeLead.id ? updatedLead : lead
-              );
-              // CRITICAL SAFETY CHECK: Verify array length hasn't changed
-              if (updated.length !== originalLength) {
-                console.error('CRITICAL ERROR: powerDialingLeads array length changed!', {
-                  before: originalLength,
-                  after: updated.length,
-                  leadId: activeLead.id,
-                  status: statusToSave
-                });
-                // Return original array to prevent corruption - this should NEVER happen
-                return prevLeads;
-              }
-              console.log('✓ Updated lead in powerDialingLeads. Queue length remains:', updated.length, 'Lead ID:', activeLead.id);
-              return updated;
-            });
+          if (isPowerDialing) {
+            // Use the snapshot ref as the source of truth for the original length
+            const snapshotLength = powerDialingQueueSnapshotRef.current.length;
+
+            if (snapshotLength > 0) {
+              setPowerDialingLeads(prevLeads => {
+                const originalLength = prevLeads.length;
+
+                // CRITICAL: If lengths don't match, something is wrong - restore from snapshot
+                if (originalLength !== snapshotLength) {
+                  console.error('CRITICAL ERROR: powerDialingLeads length mismatch! Restoring from snapshot.', {
+                    stateLength: originalLength,
+                    snapshotLength: snapshotLength,
+                    leadId: activeLead.id,
+                    status: statusToSave
+                  });
+                  // Restore from snapshot and then update the lead
+                  const restored = [...powerDialingQueueSnapshotRef.current];
+                  return restored.map(lead =>
+                    lead.id === activeLead.id ? updatedLead : lead
+                  );
+                }
+
+                const updated = prevLeads.map(lead =>
+                  lead.id === activeLead.id ? updatedLead : lead
+                );
+
+                // CRITICAL SAFETY CHECK: Verify array length hasn't changed
+                if (updated.length !== originalLength || updated.length !== snapshotLength) {
+                  console.error('CRITICAL ERROR: powerDialingLeads array length changed after update!', {
+                    before: originalLength,
+                    after: updated.length,
+                    snapshot: snapshotLength,
+                    leadId: activeLead.id,
+                    status: statusToSave
+                  });
+                  // Restore from snapshot to prevent corruption
+                  const restored = [...powerDialingQueueSnapshotRef.current];
+                  return restored.map(lead =>
+                    lead.id === activeLead.id ? updatedLead : lead
+                  );
+                }
+
+                console.log('✓ Updated lead in powerDialingLeads. Queue length remains:', updated.length, 'Lead ID:', activeLead.id);
+                return updated;
+              });
+            }
           }
         }
 
         // Refresh leads list and activities
         // NOTE: This updates the main leads list, but powerDialingLeads remains independent
+        // The snapshot ref is NEVER affected by fetchLeads()
         await fetchLeads();
+
+        // CRITICAL: After fetchLeads(), verify powerDialingLeads hasn't been corrupted
+        // This is a safety check to ensure the queue doesn't shrink
+        if (isPowerDialing && powerDialingQueueSnapshotRef.current.length > 0) {
+          const snapshotLength = powerDialingQueueSnapshotRef.current.length;
+          // Use a small delay to check after state updates
+          setTimeout(() => {
+            if (powerDialingLeads.length !== snapshotLength) {
+              console.error('CRITICAL: powerDialingLeads corrupted after fetchLeads! Restoring from snapshot.', {
+                stateLength: powerDialingLeads.length,
+                snapshotLength: snapshotLength
+              });
+              // Restore from snapshot to prevent queue from shrinking
+              setPowerDialingLeads([...powerDialingQueueSnapshotRef.current]);
+            }
+          }, 100);
+        }
 
         // Refresh activities to show the new disposition change
         await fetchLeadActivities(activeLead.id);
@@ -2043,39 +2195,54 @@ export default function DashboardPage() {
 
           setCallStartTime(null);
           setCurrentCall(null);
+          currentCallRef.current = null;
           setWebPhoneStatus('Call ended');
 
           // Move to next lead and auto-dial
-          // IMPORTANT: powerDialingLeads is a FIXED queue created at session start
-          // It never changes in length - only individual lead data is updated
-          const nextIndex = powerDialingIndex + 1;
-          console.log('Moving to next lead. Current index:', powerDialingIndex, 'Next index:', nextIndex, 'Queue length:', powerDialingLeads.length);
+          // CRITICAL: Set flag to prevent useEffect from also trying to advance
+          isManuallyAdvancingRef.current = true;
 
-          if (nextIndex < powerDialingLeads.length) {
+          // Use the snapshot ref as source of truth
+          const snapshot = powerDialingQueueSnapshotRef.current;
+          const nextIndex = powerDialingIndex + 1;
+          console.log('handleSubmitDisposition: Moving to next lead. Index:', nextIndex, 'Snapshot length:', snapshot.length);
+
+          if (nextIndex < snapshot.length) {
             setPowerDialingIndex(nextIndex);
-            const nextLead = powerDialingLeads[nextIndex];
+            const nextLead = snapshot[nextIndex];
             if (!nextLead) {
-              console.error('CRITICAL ERROR: Next lead not found at index', nextIndex, 'in powerDialingLeads array of length', powerDialingLeads.length);
-              console.error('Queue contents:', powerDialingLeads.map((l, i) => ({ index: i, id: l.id, name: `${l.first_name} ${l.last_name}` })));
+              console.error('CRITICAL ERROR: Next lead not found at index', nextIndex, 'in snapshot array of length', snapshot.length);
+              console.error('Snapshot contents:', snapshot.map((l, i) => ({ index: i, id: l.id, name: `${l.first_name} ${l.last_name}` })));
               setIsPowerDialing(false);
               setPowerDialingLeads([]);
+              powerDialingQueueSnapshotRef.current = [];
+              isManuallyAdvancingRef.current = false;
               setWebPhoneStatus('Error: Lead not found in queue');
               return;
             }
-            console.log('Setting next lead:', nextLead.id, `${nextLead.first_name} ${nextLead.last_name}`, 'Phone:', nextLead.phone);
+            console.log('handleSubmitDisposition: Setting next lead from snapshot:', nextLead.id, `${nextLead.first_name} ${nextLead.last_name}`, 'Phone:', nextLead.phone);
             setActiveLead(nextLead);
 
             // Auto-dial the next lead after a short delay
             setTimeout(async () => {
-              if (nextLead?.phone && webPhone && webPhoneReady && !currentCall) {
+              // Use ref to check currentCall (avoids closure issues)
+              const hasActiveCall = currentCallRef.current !== null;
+              if (nextLead?.phone && webPhone && webPhoneReady && !hasActiveCall) {
                 try {
-                  setWebPhoneStatus(`Dialing ${nextLead.phone}... (${nextIndex + 1}/${powerDialingLeads.length})`);
+                  // Clear the flag immediately when dial starts - this allows useEffect to work for future calls
+                  isManuallyAdvancingRef.current = false;
+                  console.log('handleSubmitDisposition: Cleared manual advancement flag - dial starting');
+                  
+                  // Use snapshot length for accurate count
+                  setWebPhoneStatus(`Dialing ${nextLead.phone}... (${nextIndex + 1}/${snapshot.length})`);
+                  console.log(`handleSubmitDisposition: Dialing lead ${nextIndex + 1} of ${snapshot.length} from snapshot`);
                   const cleanNumber = nextLead.phone.replace(/\D/g, '');
                   const session = webPhone.userAgent.invite(cleanNumber, {
                     fromNumber: cleanNumber,
                   });
 
                   setCurrentCall(session);
+                currentCallRef.current = session;
 
                   session.on('accepted', () => {
                     setWebPhoneStatus('Call connected');
@@ -2109,6 +2276,7 @@ export default function DashboardPage() {
 
                     setCallStartTime(null);
                     setCurrentCall(null);
+                currentCallRef.current = null;
                   });
 
                   session.on('rejected', () => {
@@ -2134,6 +2302,7 @@ export default function DashboardPage() {
 
                     setCallStartTime(null);
                     setCurrentCall(null);
+                currentCallRef.current = null;
                   });
 
                   session.on('failed', () => {
@@ -2159,26 +2328,45 @@ export default function DashboardPage() {
 
                     setCallStartTime(null);
                     setCurrentCall(null);
+                currentCallRef.current = null;
                   });
                 } catch (error: any) {
-                  console.error('Failed to dial next lead:', error);
+                  console.error('handleSubmitDisposition: Failed to dial next lead:', error);
                   setWebPhoneStatus(`Dial failed: ${error.message || 'Unknown error'}`);
                   setCurrentCall(null);
+                currentCallRef.current = null;
+                  isManuallyAdvancingRef.current = false; // Clear flag on error
                 }
+              } else {
+                console.warn('handleSubmitDisposition: Auto-dial conditions not met - call not started:', {
+                  hasPhone: !!nextLead?.phone,
+                  phone: nextLead?.phone,
+                  hasWebPhone: !!webPhone,
+                  webPhoneReady,
+                  hasCurrentCall: !!currentCall,
+                  nextIndex,
+                  snapshotLength: snapshot.length
+                });
+                // Clear flag if conditions aren't met
+                isManuallyAdvancingRef.current = false;
               }
             }, 1500); // Wait 1.5 seconds before dialing next lead
           } else {
             // Finished all leads
             setIsPowerDialing(false);
             setPowerDialingIndex(0);
+            const totalDialed = powerDialingQueueSnapshotRef.current.length;
             setPowerDialingLeads([]);
+            powerDialingQueueSnapshotRef.current = [];
+            isManuallyAdvancingRef.current = false; // Clear the flag
             setWebPhoneStatus('Power dialing complete');
-            alert(`Power dialing complete! Dialed ${powerDialingLeads.length} leads.`);
+            alert(`Power dialing complete! Dialed ${totalDialed} leads.`);
           }
         } catch (error: any) {
           console.error('Error ending call in power dialer:', error);
           // Still clear the call state
           setCurrentCall(null);
+          currentCallRef.current = null;
           setCallStartTime(null);
         }
       } else {
@@ -2507,6 +2695,7 @@ export default function DashboardPage() {
             --p-indigo: #4F46E5;
             --p-slate-900: #0F172A;
             --p-slate-50: #F8FAFC;
+            --p-accent: #6366f1;
           }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
@@ -2532,6 +2721,32 @@ export default function DashboardPage() {
           box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.04), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
           border-color: #E2E8F0;
         }
+        
+        .glass-card-premium {
+          background: rgba(255, 255, 255, 0.7);
+          backdrop-filter: blur(16px);
+          border: 1px solid rgba(255, 255, 255, 0.5);
+          box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.04);
+          transition: all 0.4s ease;
+        }
+        .glass-card-premium:hover {
+          transform: translateY(-5px);
+          box-shadow: 0 12px 40px 0 rgba(31, 38, 135, 0.08);
+          border-color: rgba(99, 102, 241, 0.2);
+        }
+
+        .text-gradient-indigo {
+          background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+        }
+
+        @keyframes pulse-soft {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.8; transform: scale(1.05); }
+        }
+        .animate-pulse-soft { animation: pulse-soft 3s infinite ease-in-out; }
+
         .glass-input {
           background: rgba(248, 250, 252, 0.8);
           border: 1px solid #E2E8F0;
@@ -2641,8 +2856,13 @@ export default function DashboardPage() {
             let activeIdx = -1;
 
             if (isPowerDialing) {
-              queueLeads = powerDialingLeads;
+              // CRITICAL: Use the IMMUTABLE snapshot from ref for Live Queue display
+              // This ensures the queue length never changes, even if state is updated
+              queueLeads = powerDialingQueueSnapshotRef.current.length > 0
+                ? powerDialingQueueSnapshotRef.current
+                : powerDialingLeads; // Fallback to state if ref is empty
               activeIdx = powerDialingIndex;
+              console.log('Live Queue: Using snapshot. Length:', queueLeads.length, 'Active index:', activeIdx);
             } else {
               const needsDisposition = (lead: Lead) => {
                 const status = lead.status || 'New';
@@ -2755,34 +2975,33 @@ export default function DashboardPage() {
 
         {/* VIEW: OVERVIEW */}
         {activeView === 'overview' && (
-          <main className="flex-1 p-8 lg:p-14 overflow-y-auto bg-[#FBFBFC]">
+          <main className="flex-1 p-8 lg:p-12 overflow-y-auto bg-[#F8FAFC]">
             <header className="max-w-7xl mx-auto flex justify-between items-end mb-12">
-              <div>
-                <div className="flex items-center gap-3 mb-3">
-                  <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[9px] font-black uppercase tracking-[0.2em] rounded-md border border-emerald-200">
-                    System Active
-                  </span>
-                  <span className="text-slate-300 text-xs">/</span>
-                  <span className="text-slate-400 text-[9px] font-black uppercase tracking-[0.2em]">
-                    Command Center
-                  </span>
+              <div className="space-y-2">
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 px-3 py-1 bg-white border border-slate-100 rounded-full shadow-sm">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span className="text-[10px] font-black text-slate-700 uppercase tracking-widest">System Active</span>
+                  </div>
+                  <span className="text-slate-300">/</span>
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Dashboard Hub</span>
                 </div>
                 <h1 className="text-4xl font-black tracking-tighter text-slate-900 leading-none">
                   Integrated Financial <span className="font-extralight italic text-slate-400">OS</span>
                 </h1>
               </div>
-              <div className="hidden md:flex items-center gap-6 pb-1">
-                <div className="text-right">
-                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Network Health</p>
-                  <p className="text-xs font-bold text-slate-900 flex items-center justify-end gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+
+              <div className="hidden lg:flex items-center gap-8 pb-1">
+                <div className="text-right text-left">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 text-left">Network Health</p>
+                  <p className="text-sm font-black text-slate-900 flex items-center justify-start gap-2">
                     Operational
                   </p>
                 </div>
-                <div className="h-8 w-px bg-slate-200"></div>
-                <div className="text-right">
-                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Last Updated</p>
-                  <p className="text-xs font-bold text-slate-900">Just Now</p>
+                <div className="h-10 w-px bg-slate-100"></div>
+                <div className="text-right text-left">
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 text-left">Last Sync</p>
+                  <p className="text-sm font-black text-indigo-600">Just Now</p>
                 </div>
               </div>
             </header>
@@ -2793,7 +3012,7 @@ export default function DashboardPage() {
                 <MetricCard
                   title="Total Universe"
                   value={metrics.totalLeads.toLocaleString()}
-                  subtext="Master distribution index"
+                  subtext="Global Distribution Index"
                   icon="fa-globe"
                   trend={{ value: metrics.growth, positive: metrics.growth >= 0 }}
                   colorClass="bg-indigo-50 text-indigo-600"
@@ -2801,68 +3020,80 @@ export default function DashboardPage() {
                 <MetricCard
                   title="Today's Intake"
                   value={metrics.todayCount}
-                  subtext="Real-time capture stream"
+                  subtext="Real-time Capture Hub"
                   icon="fa-bolt"
                   colorClass="bg-blue-50 text-blue-600"
                 />
                 <MetricCard
                   title="Daily Interactions"
                   value={metrics.callsToday}
-                  subtext="Voice interaction volume"
+                  subtext="Voice Engagement Vol."
                   icon="fa-phone-volume"
                   colorClass="bg-emerald-50 text-emerald-600"
                 />
                 <MetricCard
                   title="Engagement Time"
                   value={metrics.avgDuration > 0 ? `${Math.floor(metrics.avgDuration / 60)}m ${metrics.avgDuration % 60}s` : '0s'}
-                  subtext="Avg session duration"
+                  subtext="Mean Resolution Time"
                   icon="fa-stopwatch"
                   colorClass="bg-amber-50 text-amber-600"
                 />
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                {/* PRIMARY ANALYTICS */}
-                <div className="lg:col-span-8 space-y-8">
-                  <div className="flex flex-col md:flex-row gap-8">
-                    <VelocityMap data={metrics.dailyVolume} />
-                    <FunnelAnatomy metrics={metrics} />
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+                <div className="lg:col-span-8 flex flex-col gap-8">
+                  <div className="flex flex-col md:flex-row gap-8 min-h-[420px]">
+                    <div className="flex-1 flex h-full min-w-0"><VelocityMap data={metrics.dailyVolume} /></div>
+                    <div className="h-full flex shrink-0"><FunnelAnatomy metrics={metrics} /></div>
                   </div>
-                  <IntelligenceHeatmap data={metrics.activityHeatmap} />
+                  <div className="min-h-[220px] h-full flex"><IntelligenceHeatmap data={metrics.activityHeatmap} /></div>
                 </div>
 
-                {/* INTELLIGENCE STREAM */}
-                <div className="lg:col-span-4 h-full">
-                  <div className="glass-panel p-8 rounded-[2.5rem] h-full flex flex-col">
-                    <div className="flex justify-between items-center mb-8">
-                      <h3 className="text-sm font-black text-slate-900 tracking-tight uppercase">Recent Stream</h3>
-                      <button onClick={() => setActiveView('contacts')} className="text-[10px] font-black text-indigo-600 uppercase tracking-widest hover:underline">
-                        View All
+                <div className="lg:col-span-4 h-full sticky top-8">
+                  <div className="glass-card-premium p-8 rounded-[2.5rem] h-full flex flex-col border border-slate-100 min-h-[660px]">
+                    <div className="flex items-center justify-between mb-8">
+                      <div>
+                        <h3 className="text-sm font-black text-slate-900 tracking-tight uppercase">Recent Intelligence</h3>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">Live Stream</p>
+                      </div>
+                      <button
+                        onClick={() => setActiveView('contacts')}
+                        className="w-10 h-10 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-400 hover:text-indigo-600 hover:border-indigo-100 hover:bg-white transition-all group"
+                      >
+                        <i className="fa-solid fa-arrow-right text-xs group-hover:translate-x-0.5 transition-transform"></i>
                       </button>
                     </div>
 
-                    <div className="space-y-4 flex-1">
-                      {leads.slice(0, 7).map((lead) => (
+                    <div className="space-y-4 flex-1 overflow-y-auto pr-2 -mr-2">
+                      {leads.slice(0, 8).map((lead, idx) => (
                         <div
                           key={lead.id}
                           onClick={() => { setActiveLead(lead); setActiveView('dialer'); }}
-                          className="p-4 bg-[#FBFBFC] rounded-2xl border border-slate-100 hover:border-indigo-100 hover:bg-white hover:shadow-sm transition-all cursor-pointer group"
+                          className="p-5 bg-white rounded-3xl border border-slate-100 hover:border-indigo-100 hover:shadow-xl hover:shadow-indigo-500/5 transition-all cursor-pointer group relative overflow-hidden active:scale-[0.98]"
                         >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center text-[10px] font-bold text-slate-400 border border-slate-50 group-hover:text-indigo-600 group-hover:border-indigo-100 transition-all">
+                          <div className="absolute top-0 right-0 w-24 h-24 bg-slate-50/50 rounded-full blur-2xl -mr-12 -mt-12 group-hover:bg-indigo-50/50 transition-colors"></div>
+                          <div className="relative flex items-center justify-between">
+                            <div className="flex items-center gap-4">
+                              <div className="w-11 h-11 rounded-2xl bg-slate-50 flex items-center justify-center text-[10px] font-bold text-slate-400 border border-slate-50 group-hover:text-indigo-600 group-hover:border-indigo-100 group-hover:bg-white transition-all shadow-sm">
                                 {getInitials(lead.first_name, lead.last_name)}
                               </div>
-                              <div>
-                                <p className="text-xs font-black text-slate-900 group-hover:text-indigo-600 transition-colors truncate w-32 uppercase tracking-tight">
+                              <div className="min-w-0">
+                                <p className="text-[13px] font-black text-slate-900 group-hover:text-indigo-600 transition-colors uppercase tracking-tight truncate w-32">
                                   {lead.first_name} {lead.last_name}
                                 </p>
-                                <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">{getTimeAgo(lead.created_at)}</p>
+                                <p className="text-[10px] text-slate-400 font-bold mt-0.5 flex items-center gap-1.5 uppercase tracking-widest">
+                                  <i className="fa-regular fa-clock text-[9px]"></i>
+                                  {getTimeAgo(lead.created_at)}
+                                </p>
                               </div>
                             </div>
-                            <span className="text-[9px] font-black py-0.5 px-2 bg-white rounded border border-slate-100 text-slate-500 uppercase tracking-tighter">
-                              {formatStatusForDisplay(lead.status)}
-                            </span>
+                            <div className="flex flex-col items-end gap-1.5">
+                              <div className="px-2.5 py-1 bg-slate-50 rounded-lg border border-slate-100 group-hover:border-indigo-100 group-hover:bg-indigo-50/30 transition-all">
+                                <span className="text-[9px] font-black text-slate-500 group-hover:text-indigo-600 uppercase tracking-tighter">
+                                  {formatStatusForDisplay(lead.status)}
+                                </span>
+                              </div>
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -3254,6 +3485,7 @@ export default function DashboardPage() {
                               console.error('Error ending call:', error);
                               // On error, still clear the state
                               setCurrentCall(null);
+                currentCallRef.current = null;
                               setCallStartTime(null);
                               setWebPhoneStatus('Call ended');
                             }
