@@ -188,6 +188,12 @@ export default function DashboardPage() {
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const [currentCall, setCurrentCall] = useState<any>(null);
+  const [powerDialerEnabled, setPowerDialerEnabled] = useState(false);
+  const [isPowerDialing, setIsPowerDialing] = useState(false);
+  const [powerDialingIndex, setPowerDialingIndex] = useState(0);
+  const [powerDialingLeads, setPowerDialingLeads] = useState<Lead[]>([]);
+  const [leadActivities, setLeadActivities] = useState<any[]>([]);
+  const [callStartTime, setCallStartTime] = useState<Date | null>(null);
   // const itemsPerPage = 50; // Replaced with state
 
   const getDateFilterLabel = () => {
@@ -211,6 +217,38 @@ export default function DashboardPage() {
     }
   };
 
+  // Fetch activities for a lead
+  const fetchLeadActivities = useCallback(async (leadId: string) => {
+    try {
+      console.log('Fetching activities for lead:', leadId);
+      const { data, error } = await supabase
+        .from('lead_activities')
+        .select('*')
+        .eq('lead_id', leadId)
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (error) {
+        console.error('Error fetching activities:', error);
+        throw error;
+      }
+      
+      console.log('Fetched activities:', data);
+      
+      // Normalize activities to ensure activity_type is set (fallback to 'type' if activity_type doesn't exist)
+      const normalizedActivities = (data || []).map((activity: any) => ({
+        ...activity,
+        activity_type: activity.activity_type || activity.type?.toLowerCase() || 'unknown',
+      }));
+      
+      console.log('Normalized activities:', normalizedActivities);
+      setLeadActivities(normalizedActivities);
+    } catch (error) {
+      console.error('Error fetching activities:', error);
+      setLeadActivities([]);
+    }
+  }, []);
+
   useEffect(() => {
     if (activeView === 'contacts') {
       fetchLeads();
@@ -226,7 +264,14 @@ export default function DashboardPage() {
     }
     setShowTagInput(false);
     setNewTagValue('');
-  }, [activeLead]);
+    
+    // Fetch activities when active lead changes
+    if (activeLead?.id) {
+      fetchLeadActivities(activeLead.id);
+    } else {
+      setLeadActivities([]);
+    }
+  }, [activeLead?.id, fetchLeadActivities]);
 
   const [isDownloadingRecordings, setIsDownloadingRecordings] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState('');
@@ -434,10 +479,35 @@ export default function DashboardPage() {
           session.accept().then(() => {
             console.log('Call accepted');
             setWebPhoneStatus('Call connected');
+            setCallStartTime(new Date());
           });
           
           session.on('terminated', () => {
             setWebPhoneStatus('Call ended');
+            
+            // Calculate call duration and save activity (always save, even if duration is 0)
+            if (activeLead?.id) {
+              const duration = callStartTime 
+                ? Math.floor((new Date().getTime() - callStartTime.getTime()) / 1000)
+                : 0;
+              
+              console.log('Saving incoming call terminated activity:', {
+                leadId: activeLead.id,
+                duration,
+              });
+              
+              saveActivity(
+                activeLead.id,
+                'call',
+                `Incoming call ended${duration > 0 ? ` - Duration: ${formatCallDuration(duration)}` : ''}`,
+                {
+                  duration_seconds: duration,
+                  call_type: 'inbound',
+                }
+              );
+            }
+            
+            setCallStartTime(null);
             setCurrentCall(null);
           });
         });
@@ -520,6 +590,8 @@ export default function DashboardPage() {
       session.on('accepted', () => {
         console.log('Call accepted');
         setWebPhoneStatus('Call connected');
+        // Track call start time
+        setCallStartTime(new Date());
       });
       
       session.on('progress', () => {
@@ -529,19 +601,90 @@ export default function DashboardPage() {
       session.on('terminated', () => {
         console.log('Call terminated');
         setWebPhoneStatus('Call ended');
+        
+        // Calculate call duration and save activity (always save, even if duration is 0)
+        if (activeLead?.id) {
+          const duration = callStartTime 
+            ? Math.floor((new Date().getTime() - callStartTime.getTime()) / 1000)
+            : 0;
+          
+          console.log('Saving call terminated activity:', {
+            leadId: activeLead.id,
+            duration,
+            callStartTime: callStartTime ? 'exists' : 'null',
+          });
+          
+          saveActivity(
+            activeLead.id,
+            'call',
+            `Call ended${duration > 0 ? ` - Duration: ${formatCallDuration(duration)}` : ''}`,
+            {
+              duration_seconds: duration,
+              phone_number: activeLead.phone,
+              call_type: 'outbound',
+            }
+          );
+        } else {
+          console.warn('Cannot save call activity: activeLead?.id is', activeLead?.id);
+        }
+        
+        setCallStartTime(null);
         setCurrentCall(null);
+        // If power dialing, the useEffect will handle moving to next lead
       });
       
       session.on('rejected', () => {
         console.log('Call rejected');
         setWebPhoneStatus('Call rejected');
+        
+        // Save activity for rejected call (even if call never connected)
+        if (activeLead?.id) {
+          const duration = callStartTime 
+            ? Math.floor((new Date().getTime() - callStartTime.getTime()) / 1000)
+            : 0;
+          saveActivity(
+            activeLead.id,
+            'call',
+            `Call rejected${duration > 0 ? ` - Duration: ${formatCallDuration(duration)}` : ''}`,
+            {
+              duration_seconds: duration,
+              phone_number: activeLead.phone,
+              call_type: 'outbound',
+              call_result: 'rejected',
+            }
+          );
+        }
+        
+        setCallStartTime(null);
         setCurrentCall(null);
+        // If power dialing, the useEffect will handle moving to next lead
       });
       
       session.on('failed', () => {
         console.log('Call failed');
         setWebPhoneStatus('Call failed');
+        
+        // Save activity for failed call (even if call never connected)
+        if (activeLead?.id) {
+          const duration = callStartTime 
+            ? Math.floor((new Date().getTime() - callStartTime.getTime()) / 1000)
+            : 0;
+          saveActivity(
+            activeLead.id,
+            'call',
+            `Call failed${duration > 0 ? ` - Duration: ${formatCallDuration(duration)}` : ''}`,
+            {
+              duration_seconds: duration,
+              phone_number: activeLead.phone,
+              call_type: 'outbound',
+              call_result: 'failed',
+            }
+          );
+        }
+        
+        setCallStartTime(null);
         setCurrentCall(null);
+        // If power dialing, the useEffect will handle moving to next lead
       });
       
     } catch (error: any) {
@@ -551,21 +694,328 @@ export default function DashboardPage() {
     }
   }, [webPhone, webPhoneReady, activeLead?.phone, currentCall]);
 
-  // Auto-dial when active lead changes (only if WebPhone is ready)
+  // Start Power Dialing - dial all leads sequentially
+  const startPowerDialing = useCallback(async () => {
+    if (!webPhone || !webPhoneReady) {
+      alert('WebPhone is not ready. Please wait for initialization.');
+      return;
+    }
+
+    if (isPowerDialing) {
+      // Stop power dialing
+      setIsPowerDialing(false);
+      setPowerDialingIndex(0);
+      setPowerDialingLeads([]);
+      if (currentCall) {
+        currentCall.hangup();
+      }
+      return;
+    }
+
+    // Fetch all leads for power dialing
+    try {
+      setLoading(true);
+      let allLeads: Lead[] = [];
+      let page = 1;
+      let hasMore = true;
+
+      while (hasMore) {
+        const from = (page - 1) * 1000;
+        const to = from + 999;
+        
+        const response = await supabase
+          .from('leads')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .range(from, to);
+
+        if (response.error) throw response.error;
+        
+        const pageLeads = response.data || [];
+        allLeads = [...allLeads, ...pageLeads];
+        
+        hasMore = pageLeads.length === 1000;
+        page++;
+      }
+
+      // Filter leads with phone numbers
+      const leadsWithPhone = allLeads.filter(lead => lead.phone && lead.phone.trim());
+
+      if (leadsWithPhone.length === 0) {
+        alert('No leads with phone numbers found.');
+        setLoading(false);
+        return;
+      }
+
+      setIsPowerDialing(true);
+      setPowerDialingLeads(leadsWithPhone);
+      setPowerDialingIndex(0);
+      setLoading(false);
+
+      // Switch to dialer view
+      setActiveView('dialer');
+      
+      // Start with first lead
+      const firstLead = leadsWithPhone[0];
+      setActiveLead(firstLead);
+      
+      // Wait a moment then dial directly
+      setTimeout(async () => {
+        if (firstLead?.phone && webPhone && webPhoneReady) {
+          try {
+            setWebPhoneStatus(`Dialing ${firstLead.phone}...`);
+            const cleanNumber = firstLead.phone.replace(/\D/g, '');
+            const session = webPhone.userAgent.invite(cleanNumber, {
+              fromNumber: cleanNumber,
+            });
+            
+            setCurrentCall(session);
+            
+            session.on('accepted', () => {
+              setWebPhoneStatus('Call connected');
+              setCallStartTime(new Date());
+            });
+            
+            session.on('progress', () => {
+              setWebPhoneStatus('Ringing...');
+            });
+            
+            session.on('terminated', () => {
+              setWebPhoneStatus('Call ended');
+              
+              // Calculate call duration and save activity (always save, even if duration is 0)
+              if (firstLead?.id) {
+                const duration = callStartTime 
+                  ? Math.floor((new Date().getTime() - callStartTime.getTime()) / 1000)
+                  : 0;
+                
+                console.log('Saving power dialer call terminated activity:', {
+                  leadId: firstLead.id,
+                  duration,
+                });
+                
+                saveActivity(
+                  firstLead.id,
+                  'call',
+                  `Call ended${duration > 0 ? ` - Duration: ${formatCallDuration(duration)}` : ''}`,
+                  {
+                    duration_seconds: duration,
+                    phone_number: firstLead.phone,
+                    call_type: 'outbound',
+                  }
+                );
+              }
+              
+              setCallStartTime(null);
+              setCurrentCall(null);
+            });
+            
+            session.on('rejected', () => {
+              setWebPhoneStatus('Call rejected');
+              
+              // Save activity for rejected call
+              if (firstLead?.id && callStartTime) {
+                const duration = Math.floor((new Date().getTime() - callStartTime.getTime()) / 1000);
+                saveActivity(
+                  firstLead.id,
+                  'call',
+                  `Call rejected - Duration: ${formatCallDuration(duration)}`,
+                  {
+                    duration_seconds: duration,
+                    phone_number: firstLead.phone,
+                    call_type: 'outbound',
+                    call_result: 'rejected',
+                  }
+                );
+              }
+              
+              setCallStartTime(null);
+              setCurrentCall(null);
+            });
+            
+            session.on('failed', () => {
+              setWebPhoneStatus('Call failed');
+              
+              // Save activity for failed call
+              if (firstLead?.id && callStartTime) {
+                const duration = Math.floor((new Date().getTime() - callStartTime.getTime()) / 1000);
+                saveActivity(
+                  firstLead.id,
+                  'call',
+                  `Call failed - Duration: ${formatCallDuration(duration)}`,
+                  {
+                    duration_seconds: duration,
+                    phone_number: firstLead.phone,
+                    call_type: 'outbound',
+                    call_result: 'failed',
+                  }
+                );
+              }
+              
+              setCallStartTime(null);
+              setCurrentCall(null);
+            });
+          } catch (error: any) {
+            console.error('Failed to dial:', error);
+            setWebPhoneStatus(`Dial failed: ${error.message || 'Unknown error'}`);
+            setCurrentCall(null);
+          }
+        }
+      }, 2000);
+
+    } catch (error: any) {
+      console.error('Failed to fetch leads for power dialing:', error);
+      alert('Failed to start power dialing. Please try again.');
+      setLoading(false);
+    }
+  }, [webPhone, webPhoneReady, isPowerDialing, currentCall]);
+
+  // Move to next lead after call ends (when power dialing)
   useEffect(() => {
-    // Only auto-dial if WebPhone is fully ready and no call is in progress
-    if (webPhone && webPhoneReady && activeLead?.phone && !currentCall) {
+    if (isPowerDialing && !currentCall && powerDialingLeads.length > 0 && powerDialingIndex < powerDialingLeads.length && webPhone && webPhoneReady) {
+      // Call just ended, wait a moment then move to next lead
+      const timer = setTimeout(() => {
+        const nextIndex = powerDialingIndex + 1;
+        
+        if (nextIndex < powerDialingLeads.length) {
+          setPowerDialingIndex(nextIndex);
+          const nextLead = powerDialingLeads[nextIndex];
+          setActiveLead(nextLead);
+          
+          // Dial next lead after a short delay
+          setTimeout(() => {
+            if (nextLead?.phone && webPhone && webPhoneReady) {
+              try {
+                setWebPhoneStatus(`Dialing ${nextLead.phone}... (${nextIndex + 1}/${powerDialingLeads.length})`);
+                const cleanNumber = nextLead.phone.replace(/\D/g, '');
+                const session = webPhone.userAgent.invite(cleanNumber, {
+                  fromNumber: cleanNumber,
+                });
+                
+                setCurrentCall(session);
+                
+                session.on('accepted', () => {
+                  setWebPhoneStatus('Call connected');
+                  setCallStartTime(new Date());
+                });
+                
+                session.on('progress', () => {
+                  setWebPhoneStatus('Ringing...');
+                });
+                
+                session.on('terminated', () => {
+                  setWebPhoneStatus('Call ended');
+                  
+                  // Calculate call duration and save activity (always save, even if duration is 0)
+                  if (nextLead?.id) {
+                    const duration = callStartTime 
+                      ? Math.floor((new Date().getTime() - callStartTime.getTime()) / 1000)
+                      : 0;
+                    
+                    console.log('Saving sequential dialer call terminated activity:', {
+                      leadId: nextLead.id,
+                      duration,
+                    });
+                    
+                    saveActivity(
+                      nextLead.id,
+                      'call',
+                      `Call ended${duration > 0 ? ` - Duration: ${formatCallDuration(duration)}` : ''}`,
+                      {
+                        duration_seconds: duration,
+                        phone_number: nextLead.phone,
+                        call_type: 'outbound',
+                      }
+                    );
+                  }
+                  
+                  setCallStartTime(null);
+                  setCurrentCall(null);
+                });
+                
+                session.on('rejected', () => {
+                  setWebPhoneStatus('Call rejected');
+                  
+                  // Save activity for rejected call
+                  if (nextLead?.id && callStartTime) {
+                    const duration = Math.floor((new Date().getTime() - callStartTime.getTime()) / 1000);
+                    saveActivity(
+                      nextLead.id,
+                      'call',
+                      `Call rejected - Duration: ${formatCallDuration(duration)}`,
+                      {
+                        duration_seconds: duration,
+                        phone_number: nextLead.phone,
+                        call_type: 'outbound',
+                        call_result: 'rejected',
+                      }
+                    );
+                  }
+                  
+                  setCallStartTime(null);
+                  setCurrentCall(null);
+                });
+                
+                session.on('failed', () => {
+                  setWebPhoneStatus('Call failed');
+                  
+                  // Save activity for failed call
+                  if (nextLead?.id && callStartTime) {
+                    const duration = Math.floor((new Date().getTime() - callStartTime.getTime()) / 1000);
+                    saveActivity(
+                      nextLead.id,
+                      'call',
+                      `Call failed - Duration: ${formatCallDuration(duration)}`,
+                      {
+                        duration_seconds: duration,
+                        phone_number: nextLead.phone,
+                        call_type: 'outbound',
+                        call_result: 'failed',
+                      }
+                    );
+                  }
+                  
+                  setCallStartTime(null);
+                  setCurrentCall(null);
+                });
+              } catch (error: any) {
+                console.error('Failed to dial:', error);
+                setWebPhoneStatus(`Dial failed: ${error.message || 'Unknown error'}`);
+                setCurrentCall(null);
+              }
+            }
+          }, 2000);
+        } else {
+          // Finished all leads
+          setIsPowerDialing(false);
+          setPowerDialingIndex(0);
+          setPowerDialingLeads([]);
+          setWebPhoneStatus('Power dialing complete');
+          alert(`Power dialing complete! Dialed ${powerDialingLeads.length} leads.`);
+        }
+      }, 3000); // Wait 3 seconds after call ends before next dial
+      
+      return () => clearTimeout(timer);
+    }
+  }, [currentCall, isPowerDialing, powerDialingIndex, powerDialingLeads, webPhone, webPhoneReady]);
+
+  // Auto-dial when active lead changes (only if Power Dialer is enabled)
+  // Note: When power dialing, we handle the dial in handleSubmitDisposition after saving disposition
+  useEffect(() => {
+    // Only auto-dial if Power Dialer toggle is enabled (not during active power dialing sequence)
+    // During active power dialing, the dial happens after disposition is saved
+    if (powerDialerEnabled && !isPowerDialing && webPhone && webPhoneReady && activeLead?.phone && !currentCall) {
       // Add a delay to ensure WebPhone is fully registered and ready
       const timer = setTimeout(() => {
         // Double-check conditions before dialing
-        if (webPhone && webPhoneReady && activeLead?.phone && !currentCall) {
+        if (powerDialerEnabled && !isPowerDialing && webPhone && webPhoneReady && activeLead?.phone && !currentCall) {
           handleDial();
         }
       }, 2000); // Wait 2 seconds after lead changes to ensure everything is ready
       
       return () => clearTimeout(timer);
     }
-  }, [activeLead?.id, webPhone, webPhoneReady, currentCall, handleDial]); // Trigger when lead ID changes
+  }, [activeLead?.id, webPhone, webPhoneReady, currentCall, handleDial, powerDialerEnabled, isPowerDialing]); // Trigger when lead ID changes or power dialer toggles
 
   const fetchLeads = async () => {
     setLoading(true);
@@ -695,6 +1145,160 @@ export default function DashboardPage() {
     }
   };
 
+  // Save activity to database
+  const saveActivity = async (leadId: string, activityType: string, description: string, metadata?: any) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        console.warn('No user found, cannot save activity');
+        return;
+      }
+
+      // Verify the lead exists and belongs to the user (required for RLS policy)
+      const { data: leadData, error: leadError } = await supabase
+        .from('leads')
+        .select('id, user_id')
+        .eq('id', leadId)
+        .single();
+
+      if (leadError || !leadData) {
+        console.error('Lead not found or access denied:', leadError);
+        return;
+      }
+
+      // If lead doesn't have a user_id, set it to current user (for RLS policy)
+      if (!leadData.user_id) {
+        console.log('Lead has no user_id, setting to current user...');
+        const { error: updateError } = await supabase
+          .from('leads')
+          .update({ user_id: user.id })
+          .eq('id', leadId);
+        
+        if (updateError) {
+          console.error('Failed to set user_id on lead:', updateError);
+          return;
+        }
+      } else if (leadData.user_id !== user.id) {
+        console.error('Lead does not belong to current user. Lead user_id:', leadData.user_id, 'Current user:', user.id);
+        return;
+      }
+
+      // Map activity type to the old 'type' column format
+      // Old schema uses: 'CALL', 'EMAIL', 'SMS', 'NOTE', 'STATUS_CHANGE'
+      const typeMapping: Record<string, string> = {
+        'call': 'CALL',
+        'disposition_change': 'STATUS_CHANGE',
+        'email': 'EMAIL',
+        'sms': 'SMS',
+        'note': 'NOTE',
+      };
+      
+      // Save activity with both activity_type and type columns (type is required for backward compatibility)
+      const activityData: any = {
+        lead_id: leadId,
+        activity_type: activityType,
+        type: typeMapping[activityType.toLowerCase()] || activityType.toUpperCase(), // Old column requires uppercase and NOT NULL
+        description,
+        metadata: metadata || {},
+        created_by: user.id,
+      };
+      
+      console.log('Saving activity:', {
+        leadId,
+        activityType,
+        description,
+        metadata,
+        activityData,
+      });
+
+      const { data, error } = await supabase
+        .from('lead_activities')
+        .insert(activityData)
+        .select()
+        .single();
+
+      if (error) {
+        // Better error logging
+        console.error('Error saving activity:', {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code,
+        });
+        console.error('Full error object:', JSON.stringify(error, null, 2));
+        console.error('Activity data attempted:', JSON.stringify(activityData, null, 2));
+        console.error('User ID:', user.id);
+        console.error('Lead ID:', leadId);
+        console.error('Lead user_id:', leadData.user_id);
+        
+        // Don't throw - we don't want to break the main flow if activity saving fails
+        return;
+      }
+
+      console.log('Activity saved successfully:', data);
+      
+      // Refresh activities for the active lead immediately
+      if (activeLead?.id === leadId) {
+        console.log('Refreshing activities after save for lead:', leadId);
+        // Add a small delay to ensure the database has committed the transaction
+        setTimeout(async () => {
+          await fetchLeadActivities(leadId);
+        }, 500);
+      } else {
+        console.log('Active lead ID does not match:', activeLead?.id, 'vs', leadId);
+      }
+    } catch (error) {
+      console.error('Error saving activity:', error);
+      // Don't throw - we don't want to break the main flow if activity saving fails
+    }
+  };
+
+  // Format call duration
+  const formatCallDuration = (seconds: number) => {
+    if (seconds < 60) {
+      return `${seconds}s`;
+    }
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    if (remainingSeconds === 0) {
+      return `${minutes}m`;
+    }
+    return `${minutes}m ${remainingSeconds}s`;
+  };
+
+  // Format time ago
+  const formatTimeAgo = (date: Date) => {
+    const now = new Date();
+    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+    
+    if (diffInSeconds < 60) {
+      return `${diffInSeconds} ${diffInSeconds === 1 ? 'SEC' : 'SECS'} AGO`;
+    }
+    
+    const diffInMinutes = Math.floor(diffInSeconds / 60);
+    if (diffInMinutes < 60) {
+      return `${diffInMinutes} ${diffInMinutes === 1 ? 'MIN' : 'MINS'} AGO`;
+    }
+    
+    const diffInHours = Math.floor(diffInMinutes / 60);
+    if (diffInHours < 24) {
+      return `${diffInHours} ${diffInHours === 1 ? 'HOUR' : 'HOURS'} AGO`;
+    }
+    
+    const diffInDays = Math.floor(diffInHours / 24);
+    if (diffInDays < 7) {
+      return `${diffInDays} ${diffInDays === 1 ? 'DAY' : 'DAYS'} AGO`;
+    }
+    
+    const diffInWeeks = Math.floor(diffInDays / 7);
+    if (diffInWeeks < 4) {
+      return `${diffInWeeks} ${diffInWeeks === 1 ? 'WEEK' : 'WEEKS'} AGO`;
+    }
+    
+    const diffInMonths = Math.floor(diffInDays / 30);
+    return `${diffInMonths} ${diffInMonths === 1 ? 'MONTH' : 'MONTHS'} AGO`;
+  };
+
   const toggleLeadSelection = (leadId: string) => {
     const newSelected = new Set(selectedLeads);
     if (newSelected.has(leadId)) {
@@ -747,18 +1351,210 @@ export default function DashboardPage() {
     if (!activeLead) return;
     setIsSubmittingDisposition(true);
     try {
+      // Get the current status from the database to ensure we have the latest
+      const { data: currentLeadData, error: fetchError } = await supabase
+        .from('leads')
+        .select('status')
+        .eq('id', activeLead.id)
+        .single();
+      
+      if (fetchError) throw fetchError;
+      
+      const oldStatus = currentLeadData?.status || activeLead.status;
       const statusToSave = getPrimaryStatusValue(selectedDisposition);
+      
+      // Only proceed if status is actually changing
+      if (oldStatus === statusToSave) {
+        alert('Status is already set to this value.');
+        setIsSubmittingDisposition(false);
+        return;
+      }
+      
+      // Update lead status
       const { error } = await supabase
         .from('leads')
         .update({ status: statusToSave })
         .eq('id', activeLead.id);
       if (error) throw error;
 
+      // Save activity for disposition change (only if status changed)
+      await saveActivity(
+        activeLead.id,
+        'disposition_change',
+        `Status changed from "${formatStatusForDisplay(oldStatus)}" to "${formatStatusForDisplay(statusToSave)}"`,
+        {
+          old_status: oldStatus,
+          new_status: statusToSave,
+          old_status_display: formatStatusForDisplay(oldStatus),
+          new_status_display: formatStatusForDisplay(statusToSave),
+        }
+      );
+
+      // Update local state
       if (activeLead) {
         updateLeadInState({ ...activeLead, status: statusToSave });
       }
+      
+      // Refresh leads list and activities
       await fetchLeads();
-      alert('Disposition saved successfully!');
+      
+      // Refresh activities to show the new disposition change
+      await fetchLeadActivities(activeLead.id);
+      
+      // If power dialing is active, end the call and move to next lead
+      if (isPowerDialing && currentCall && activeLead?.id) {
+        try {
+          // Save call activity with duration before ending
+          if (callStartTime) {
+            const duration = Math.floor((new Date().getTime() - callStartTime.getTime()) / 1000);
+            await saveActivity(
+              activeLead.id,
+              'call',
+              `Call ended - Duration: ${formatCallDuration(duration)}`,
+              {
+                duration_seconds: duration,
+                phone_number: activeLead.phone,
+                call_type: 'outbound',
+              }
+            );
+          }
+          
+          // End the current call
+          const session = currentCall as any;
+          if (session.bye) {
+            await session.bye();
+          }
+          
+          setCallStartTime(null);
+          setCurrentCall(null);
+          setWebPhoneStatus('Call ended');
+          
+          // Move to next lead and auto-dial
+          const nextIndex = powerDialingIndex + 1;
+          if (nextIndex < powerDialingLeads.length) {
+            setPowerDialingIndex(nextIndex);
+            const nextLead = powerDialingLeads[nextIndex];
+            setActiveLead(nextLead);
+            
+            // Auto-dial the next lead after a short delay
+            setTimeout(async () => {
+              if (nextLead?.phone && webPhone && webPhoneReady && !currentCall) {
+                try {
+                  setWebPhoneStatus(`Dialing ${nextLead.phone}... (${nextIndex + 1}/${powerDialingLeads.length})`);
+                  const cleanNumber = nextLead.phone.replace(/\D/g, '');
+                  const session = webPhone.userAgent.invite(cleanNumber, {
+                    fromNumber: cleanNumber,
+                  });
+                  
+                  setCurrentCall(session);
+                  
+                  session.on('accepted', () => {
+                    setWebPhoneStatus('Call connected');
+                    setCallStartTime(new Date());
+                  });
+                  
+                  session.on('progress', () => {
+                    setWebPhoneStatus('Ringing...');
+                  });
+                  
+                  session.on('terminated', () => {
+                    setWebPhoneStatus('Call ended');
+                    
+                    // Calculate call duration and save activity (always save, even if duration is 0)
+                    if (nextLead?.id) {
+                      const duration = callStartTime 
+                        ? Math.floor((new Date().getTime() - callStartTime.getTime()) / 1000)
+                        : 0;
+                      
+                      saveActivity(
+                        nextLead.id,
+                        'call',
+                        `Call ended${duration > 0 ? ` - Duration: ${formatCallDuration(duration)}` : ''}`,
+                        {
+                          duration_seconds: duration,
+                          phone_number: nextLead.phone,
+                          call_type: 'outbound',
+                        }
+                      );
+                    }
+                    
+                    setCallStartTime(null);
+                    setCurrentCall(null);
+                  });
+                  
+                  session.on('rejected', () => {
+                    setWebPhoneStatus('Call rejected');
+                    
+                    if (nextLead?.id) {
+                      const duration = callStartTime 
+                        ? Math.floor((new Date().getTime() - callStartTime.getTime()) / 1000)
+                        : 0;
+                      
+                      saveActivity(
+                        nextLead.id,
+                        'call',
+                        `Call rejected${duration > 0 ? ` - Duration: ${formatCallDuration(duration)}` : ''}`,
+                        {
+                          duration_seconds: duration,
+                          phone_number: nextLead.phone,
+                          call_type: 'outbound',
+                          call_result: 'rejected',
+                        }
+                      );
+                    }
+                    
+                    setCallStartTime(null);
+                    setCurrentCall(null);
+                  });
+                  
+                  session.on('failed', () => {
+                    setWebPhoneStatus('Call failed');
+                    
+                    if (nextLead?.id) {
+                      const duration = callStartTime 
+                        ? Math.floor((new Date().getTime() - callStartTime.getTime()) / 1000)
+                        : 0;
+                      
+                      saveActivity(
+                        nextLead.id,
+                        'call',
+                        `Call failed${duration > 0 ? ` - Duration: ${formatCallDuration(duration)}` : ''}`,
+                        {
+                          duration_seconds: duration,
+                          phone_number: nextLead.phone,
+                          call_type: 'outbound',
+                          call_result: 'failed',
+                        }
+                      );
+                    }
+                    
+                    setCallStartTime(null);
+                    setCurrentCall(null);
+                  });
+                } catch (error: any) {
+                  console.error('Failed to dial next lead:', error);
+                  setWebPhoneStatus(`Dial failed: ${error.message || 'Unknown error'}`);
+                  setCurrentCall(null);
+                }
+              }
+            }, 1500); // Wait 1.5 seconds before dialing next lead
+          } else {
+            // Finished all leads
+            setIsPowerDialing(false);
+            setPowerDialingIndex(0);
+            setPowerDialingLeads([]);
+            setWebPhoneStatus('Power dialing complete');
+            alert(`Power dialing complete! Dialed ${powerDialingLeads.length} leads.`);
+          }
+        } catch (error: any) {
+          console.error('Error ending call in power dialer:', error);
+          // Still clear the call state
+          setCurrentCall(null);
+          setCallStartTime(null);
+        }
+      } else {
+        alert('Disposition saved successfully!');
+      }
     } catch (err) {
       console.error('Failed to update disposition:', err);
       alert('Failed to update disposition. Please try again.');
@@ -1161,7 +1957,14 @@ export default function DashboardPage() {
         {activeView === 'dialer' && (
           <div className="mt-8 px-4 flex-1">
             <div className="flex items-center justify-between px-3 mb-4">
-              <span className="text-[10px] uppercase font-bold tracking-widest text-slate-500">Live Queue</span>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] uppercase font-bold tracking-widest text-slate-500">Live Queue</span>
+                {powerDialerEnabled && (
+                  <span className="text-[9px] bg-amber-600/20 text-amber-400 px-2 py-0.5 rounded border border-amber-600/30 font-bold uppercase tracking-tight flex items-center gap-1">
+                    <i className="fa-solid fa-bolt text-[8px]"></i> Auto
+                  </span>
+                )}
+              </div>
               <span className="text-[10px] bg-slate-800 px-2 py-0.5 rounded text-slate-400 font-mono">12 REMAINING</span>
             </div>
 
@@ -1370,44 +2173,111 @@ export default function DashboardPage() {
                   <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-8">Lead Activity Timeline</h3>
 
                   <div className="space-y-8 relative">
-                    <div className="absolute left-5 top-2 bottom-2 w-0.5 bg-slate-200"></div>
-
-                    {/* Timeline Item: Call */}
-                    <div className="relative pl-12">
-                      <div className="absolute left-0 top-0 w-10 h-10 rounded-2xl bg-white border border-slate-200 shadow-sm flex items-center justify-center z-10">
-                        <i className="fa-solid fa-phone text-blue-600"></i>
-                      </div>
-                      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-                        <div className="flex justify-between items-center mb-3">
-                          <span className="text-sm font-bold text-slate-900">Inbound Call Ended</span>
-                          <span className="text-[10px] font-medium text-slate-400">2 MINS AGO</span>
-                        </div>
-                        <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
-                          <div className="flex items-center gap-2 mb-2">
-                            <div className="w-4 h-4 rounded bg-purple-100 flex items-center justify-center">
-                              <i className="fa-solid fa-robot text-purple-600 text-[8px]"></i>
+                    {leadActivities.length > 0 ? (
+                      <>
+                        <div className="absolute left-5 top-2 bottom-2 w-0.5 bg-slate-200"></div>
+                        {leadActivities.map((activity) => {
+                          const timeAgo = formatTimeAgo(new Date(activity.created_at));
+                          // Handle metadata - it might be a string (JSON) or already an object
+                          let metadata: any = {};
+                          try {
+                            if (typeof activity.metadata === 'string') {
+                              metadata = JSON.parse(activity.metadata);
+                            } else if (activity.metadata && typeof activity.metadata === 'object') {
+                              metadata = activity.metadata;
+                            }
+                          } catch (e) {
+                            console.warn('Error parsing metadata:', e);
+                            metadata = {};
+                          }
+                          
+                          return (
+                            <div key={activity.id} className="relative pl-12">
+                              {/* Icon based on activity type */}
+                              <div className="absolute left-0 top-0 w-10 h-10 rounded-2xl bg-white border border-slate-200 shadow-sm flex items-center justify-center z-10">
+                                {activity.activity_type === 'call' ? (
+                                  <i className="fa-solid fa-phone text-blue-600"></i>
+                                ) : activity.activity_type === 'disposition_change' ? (
+                                  <i className="fa-solid fa-tag text-green-600"></i>
+                                ) : (
+                                  <i className="fa-solid fa-circle text-slate-400"></i>
+                                )}
+                              </div>
+                              
+                              {/* Activity content */}
+                              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                                <div className="flex justify-between items-center mb-3">
+                                  <span className="text-sm font-bold text-slate-900">
+                                    {activity.activity_type === 'call' 
+                                      ? metadata?.call_result === 'rejected' 
+                                        ? 'Call Rejected'
+                                        : metadata?.call_result === 'failed'
+                                        ? 'Call Failed'
+                                        : 'Call Ended'
+                                      : activity.activity_type === 'disposition_change'
+                                      ? 'Status Changed'
+                                      : activity.description}
+                                  </span>
+                                  <span className="text-[10px] font-medium text-slate-400">{timeAgo}</span>
+                                </div>
+                                
+                                {/* Description */}
+                                <p className="text-sm text-slate-600 mb-2">{activity.description}</p>
+                                
+                                {/* Call details */}
+                                {activity.activity_type === 'call' && (
+                                  <div className="bg-blue-50 rounded-lg p-3 border border-blue-100 mt-3 space-y-2">
+                                    {metadata?.phone_number && (
+                                      <div className="flex items-center gap-2">
+                                        <i className="fa-solid fa-phone text-blue-600 text-xs"></i>
+                                        <span className="text-xs font-semibold text-blue-700">
+                                          {metadata.phone_number}
+                                        </span>
+                                        {metadata?.call_type && (
+                                          <span className="text-xs text-blue-500">
+                                            ({metadata.call_type === 'outbound' ? 'Outbound' : 'Inbound'})
+                                          </span>
+                                        )}
+                                      </div>
+                                    )}
+                                    {metadata?.duration_seconds !== undefined && metadata.duration_seconds > 0 && (
+                                      <div className="flex items-center gap-2">
+                                        <i className="fa-solid fa-clock text-blue-600 text-xs"></i>
+                                        <span className="text-xs font-semibold text-blue-700">
+                                          Duration: {formatCallDuration(metadata.duration_seconds)}
+                                        </span>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                                
+                                {/* Status change details */}
+                                {activity.activity_type === 'disposition_change' && (
+                                  <div className="bg-green-50 rounded-lg p-3 border border-green-100 mt-3">
+                                    <div className="flex items-center gap-2 text-xs">
+                                      <span className="text-slate-500">From:</span>
+                                      <span className="px-2 py-0.5 rounded bg-white border border-green-200 text-green-700 font-semibold">
+                                        {metadata?.old_status_display || metadata?.old_status || 'Unknown'}
+                                      </span>
+                                      <i className="fa-solid fa-arrow-right text-green-600 text-[10px]"></i>
+                                      <span className="px-2 py-0.5 rounded bg-white border border-green-200 text-green-700 font-semibold">
+                                        {metadata?.new_status_display || metadata?.new_status || 'Unknown'}
+                                      </span>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                            <span className="text-[10px] font-bold text-purple-600 uppercase tracking-tight">AI Generated Summary</span>
-                          </div>
-                          <p className="text-sm text-slate-600 leading-relaxed italic">
-                            &quot;Robert expressed urgent concern about a potential bank levy. Confirmed unfiled returns for 2018, 2019, and 2021. Household income is approx. $4,500/mo.&quot;
-                          </p>
-                        </div>
+                          );
+                        })}
+                      </>
+                    ) : (
+                      <div className="text-center py-12">
+                        <i className="fa-solid fa-inbox text-slate-300 text-4xl mb-3"></i>
+                        <p className="text-sm text-slate-400">No activities yet</p>
+                        <p className="text-xs text-slate-300 mt-1">Activities will appear here as you interact with this lead</p>
                       </div>
-                    </div>
-
-                    {/* Timeline Item: Automation */}
-                    <div className="relative pl-12">
-                      <div className="absolute left-0 top-0 w-10 h-10 rounded-2xl bg-white border border-slate-200 shadow-sm flex items-center justify-center z-10">
-                        <i className="fa-solid fa-bolt text-amber-500"></i>
-                      </div>
-                      <div className="bg-white/60 p-4 rounded-2xl border border-dashed border-slate-200">
-                        <div className="flex justify-between items-center">
-                          <span className="text-sm font-medium text-slate-600">Workflow: <strong>New Lead SMS Sent</strong></span>
-                          <span className="text-[10px] font-medium text-slate-400">1 HOUR AGO</span>
-                        </div>
-                      </div>
-                    </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1432,22 +2302,47 @@ export default function DashboardPage() {
               
               {/* WebPhone Dialer UI */}
               <div className="flex-1 flex flex-col items-center justify-center p-6 text-white">
+                {/* Power Dialer Toggle */}
+                <div className="absolute top-4 right-4">
+                  <button
+                    onClick={() => setPowerDialerEnabled(!powerDialerEnabled)}
+                    disabled={!webPhoneReady}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-lg ${
+                      powerDialerEnabled
+                        ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                        : 'bg-slate-700 hover:bg-slate-600 text-slate-200'
+                    } disabled:opacity-50 disabled:cursor-not-allowed`}
+                    title={powerDialerEnabled ? 'Power Dialer: ON - Auto-dialing enabled' : 'Power Dialer: OFF - Manual dial only'}
+                  >
+                    <i className={`fa-solid ${powerDialerEnabled ? 'fa-bolt' : 'fa-bolt-slash'}`}></i>
+                    Power Dialer
+                  </button>
+                </div>
+
                 <div className={`w-20 h-20 rounded-full border-2 flex items-center justify-center mb-4 transition-all ${
                   webPhoneReady 
-                    ? 'bg-green-600/20 border-green-500/50' 
+                    ? powerDialerEnabled
+                      ? 'bg-amber-600/20 border-amber-500/50'
+                      : 'bg-green-600/20 border-green-500/50'
                     : currentCall
                     ? 'bg-blue-600/20 border-blue-500/50 animate-pulse'
                     : 'bg-blue-600/20 border-blue-500/50'
                 }`}>
                   <i className={`fa-solid text-3xl ${
                     currentCall ? 'fa-phone text-blue-400' : 
-                    webPhoneReady ? 'fa-phone text-green-400' : 
-                    'fa-phone text-blue-400'
+                    webPhoneReady 
+                      ? powerDialerEnabled 
+                        ? 'fa-bolt text-amber-400' 
+                        : 'fa-phone text-green-400'
+                      : 'fa-phone text-blue-400'
                   }`}></i>
                 </div>
                 
                 <h3 className="text-lg font-bold mb-2">Web Phone</h3>
-                <p className="text-xs text-slate-400 mb-4 uppercase tracking-widest text-center px-4">{webPhoneStatus}</p>
+                <p className="text-xs text-slate-400 mb-2 uppercase tracking-widest text-center px-4">{webPhoneStatus}</p>
+                {powerDialerEnabled && webPhoneReady && (
+                  <p className="text-xs text-amber-400 mb-4 font-bold uppercase tracking-widest">⚡ Power Dialer Active</p>
+                )}
                 
                 {activeLead?.phone && (
                   <div className="text-center mb-4 w-full">
@@ -1460,10 +2355,32 @@ export default function DashboardPage() {
                 {currentCall ? (
                   <div className="flex gap-3 mt-4">
                     <button
-                      onClick={() => {
-                        if (currentCall) {
-                          currentCall.hangup();
+                      onClick={async () => {
+                        if (!currentCall) return;
+                        
+                        try {
+                          setWebPhoneStatus('Ending call...');
+                          
+                          // WebPhoneInviter extends SIP.js Inviter, which has bye() method
+                          // This is the standard SIP.js way to end a call
+                          const session = currentCall as any;
+                          
+                          // Call bye() - this sends a BYE request and transitions session to terminated
+                          // The 'terminated' event handler will automatically clear currentCall
+                          if (session.bye) {
+                            await session.bye();
+                          } else {
+                            // This shouldn't happen, but if it does, log and force clear
+                            console.error('bye() method not available on session');
+                            setCurrentCall(null);
+                            setWebPhoneStatus('Call ended');
+                          }
+                          
+                        } catch (error: any) {
+                          console.error('Error ending call:', error);
+                          // On error, still clear the state
                           setCurrentCall(null);
+                          setWebPhoneStatus('Call ended');
                         }
                       }}
                       className="px-6 py-3 bg-red-600 hover:bg-red-700 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-lg"
@@ -1471,7 +2388,7 @@ export default function DashboardPage() {
                       <i className="fa-solid fa-phone-slash"></i> End Call
                     </button>
                   </div>
-                ) : webPhoneReady && activeLead?.phone ? (
+                ) : webPhoneReady && activeLead?.phone && !powerDialerEnabled ? (
                   <button
                     onClick={handleDial}
                     disabled={!webPhoneReady || !activeLead?.phone}
@@ -1483,6 +2400,11 @@ export default function DashboardPage() {
                   <div className="mt-4 text-center">
                     <i className="fa-solid fa-circle-notch fa-spin text-blue-400 text-2xl"></i>
                     <p className="text-xs text-slate-400 mt-2">Initializing...</p>
+                  </div>
+                ) : powerDialerEnabled && webPhoneReady ? (
+                  <div className="mt-4 text-center">
+                    <p className="text-xs text-amber-400 font-bold">Auto-dialing enabled</p>
+                    <p className="text-xs text-slate-400 mt-1">Will dial when lead is selected</p>
                   </div>
                 ) : (
                   <div className="mt-4 text-center">
@@ -1959,6 +2881,47 @@ export default function DashboardPage() {
                   )}
                 </tbody>
               </table>
+            </div>
+
+            {/* Power Dialer Section */}
+            <div className="px-8 py-4 border-t border-slate-200 bg-gradient-to-r from-amber-50 to-orange-50 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                  isPowerDialing 
+                    ? 'bg-amber-600 text-white animate-pulse' 
+                    : 'bg-amber-100 text-amber-600'
+                }`}>
+                  <i className={`fa-solid ${isPowerDialing ? 'fa-phone' : 'fa-bolt'}`}></i>
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-slate-900">Power Dialer</h4>
+                  <p className="text-xs text-slate-500">
+                    {isPowerDialing 
+                      ? `Dialing ${powerDialingIndex + 1} of ${powerDialingLeads.length} leads...`
+                      : `Dial all ${totalLeads} leads automatically`
+                    }
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={startPowerDialing}
+                disabled={!webPhoneReady || loading}
+                className={`px-6 py-3 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-lg ${
+                  isPowerDialing
+                    ? 'bg-red-600 hover:bg-red-700 text-white'
+                    : 'bg-amber-600 hover:bg-amber-700 text-white'
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
+              >
+                {isPowerDialing ? (
+                  <>
+                    <i className="fa-solid fa-stop"></i> Stop Power Dialing
+                  </>
+                ) : (
+                  <>
+                    <i className="fa-solid fa-bolt"></i> Start Power Dialing
+                  </>
+                )}
+              </button>
             </div>
 
             {/* Pagination / Status Footer */}
