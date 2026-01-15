@@ -154,30 +154,27 @@ const formatStatusForDisplay = (status?: string | null) => {
 
 function MetricCard({ title, value, subtext, icon, trend, colorClass }: { title: string; value: string | number; subtext: string; icon: string; trend?: { value: number; positive: boolean }; colorClass: string }) {
   return (
-    <div className="glass-card-premium p-7 rounded-[2.5rem] flex flex-col justify-between h-full group relative overflow-hidden">
-      <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50/50 rounded-full blur-3xl -mr-16 -mt-16 group-hover:bg-indigo-100/50 transition-colors"></div>
-      <div className="relative z-10 flex justify-between items-start mb-6">
-        <div className={`w-14 h-14 ${colorClass} rounded-2xl flex items-center justify-center text-xl shadow-lg shadow-blue-900/5 transition-transform group-hover:scale-110 duration-500`}>
+    <div className="dashboard-card stats-card animate-fade-in">
+      <div className="flex justify-between items-start">
+        <div className={`stats-icon ${colorClass}`}>
           <i className={`fa-solid ${icon}`}></i>
         </div>
         {trend && (
-          <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold text-[10px] ${trend.positive ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
-            <span className="flex h-1.5 w-1.5 rounded-full bg-current animate-pulse"></span>
-            {trend.positive ? '↑' : '↓'} {Math.abs(trend.value)}%
+          <div className={`status-badge flex items-center gap-1.5 ${trend.positive ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+            <span className={`w-1 h-1 rounded-full ${trend.positive ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
+            {trend.positive ? '+' : '-'}{Math.abs(trend.value)}%
           </div>
         )}
       </div>
-      <div className="relative z-10">
-        <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-[0.15em] mb-2">{title}</h4>
+      <div>
+        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{title}</h4>
         <div className="flex items-baseline gap-2">
-          <span className="text-4xl font-black text-slate-900 tracking-tighter">{value}</span>
+          <span className="text-3xl font-black text-slate-900 tracking-tight">{value}</span>
         </div>
-        <div className="mt-4 pt-4 border-t border-slate-100/50">
-          <p className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider line-clamp-1 flex items-center gap-2">
-            <i className="fa-solid fa-circle-info text-[8px] opacity-40"></i>
-            {subtext}
-          </p>
-        </div>
+        <p className="text-[10px] text-slate-500 font-bold mt-2 flex items-center gap-1.5">
+          <i className="fa-solid fa-arrow-right text-[8px] opacity-30"></i>
+          {subtext}
+        </p>
       </div>
     </div>
   );
@@ -196,18 +193,26 @@ function IntelligenceHeatmap({ data }: { data: { hour: number; count: number }[]
             labels: data.map(d => `${d.hour}:00`),
             datasets: [{
               data: data.map(d => d.count),
-              backgroundColor: "rgba(79, 70, 229, 0.8)",
-              borderRadius: 6,
-              hoverBackgroundColor: "rgba(79, 70, 229, 1)",
+              backgroundColor: "#4F46E5",
+              borderRadius: 4,
+              hoverBackgroundColor: "#4338CA",
             }],
           },
           options: {
             responsive: true,
             maintainAspectRatio: false,
-            plugins: { legend: { display: false }, tooltip: { enabled: true, backgroundColor: '#0f172a', titleFont: { size: 10 }, bodyFont: { size: 10 }, padding: 10, cornerRadius: 10 } },
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                backgroundColor: '#1E293B',
+                titleFont: { size: 10, weight: 'bold' },
+                padding: 12,
+                cornerRadius: 8,
+              }
+            },
             scales: {
-              y: { beginAtZero: true, grid: { display: false }, ticks: { display: false } },
-              x: { grid: { display: false }, ticks: { font: { size: 9, weight: 'bold' }, color: '#94a3b8' } },
+              y: { beginAtZero: true, grid: { color: "#F1F5F9" }, ticks: { font: { size: 9 }, color: '#94A3B8' } },
+              x: { grid: { display: false }, ticks: { font: { size: 9, weight: '700' }, color: '#94a3b8' } },
             },
           },
         });
@@ -217,22 +222,22 @@ function IntelligenceHeatmap({ data }: { data: { hour: number; count: number }[]
   }, [data]);
 
   return (
-    <div className="glass-card-premium p-8 rounded-[2.5rem] flex flex-col h-full">
-      <div className="flex items-center justify-between mb-8">
+    <div className="dashboard-card p-6 flex flex-col h-full animate-fade-in" style={{ animationDelay: '0.2s' }}>
+      <div className="flex items-center justify-between mb-6">
         <div>
-          <h3 className="text-sm font-black text-slate-900 tracking-tight uppercase">Interaction Density</h3>
-          <p className="text-[10px] text-slate-400 font-bold mt-0.5">Live Engagement Mapping</p>
+          <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest">Interaction Vol.</h3>
+          <p className="text-[10px] text-slate-400 font-bold mt-0.5 uppercase tracking-widest">Hourly Density Mapping</p>
         </div>
-        <div className="flex gap-1.5">
-          <div className="w-1.5 h-1.5 rounded-full bg-indigo-500"></div>
-          <div className="w-1.5 h-1.5 rounded-full bg-indigo-300"></div>
-          <div className="w-1.5 h-1.5 rounded-full bg-indigo-100"></div>
+        <div className="w-8 h-8 rounded-xl bg-slate-50 flex items-center justify-center text-slate-400">
+          <i className="fa-solid fa-chart-simple text-xs"></i>
         </div>
       </div>
       {!data || data.length === 0 ? (
-        <div className="flex-1 flex items-center justify-center text-slate-400 text-xs font-bold uppercase tracking-widest italic">Streaming next data segment...</div>
+        <div className="flex-1 flex items-center justify-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Analyzing Activity Flow...</p>
+        </div>
       ) : (
-        <div className="flex-1 min-h-[140px]"><canvas ref={chartRef}></canvas></div>
+        <div className="flex-1 min-h-[160px]"><canvas ref={chartRef}></canvas></div>
       )}
     </div>
   );
@@ -245,27 +250,27 @@ function VelocityMap({ data }: { data: { label: string; count: number }[] }) {
     if (chartRef.current) {
       const ctx = chartRef.current.getContext("2d");
       if (ctx) {
-        const mainGradient = ctx.createLinearGradient(0, 0, 0, 300);
-        mainGradient.addColorStop(0, "rgba(79, 70, 229, 0.08)");
-        mainGradient.addColorStop(1, "rgba(255, 255, 255, 0)");
+        const areaGradient = ctx.createLinearGradient(0, 0, 0, 300);
+        areaGradient.addColorStop(0, "rgba(79, 70, 229, 0.1)");
+        areaGradient.addColorStop(1, "rgba(255, 255, 255, 0)");
 
         chart = new Chart(ctx, {
           type: "line",
           data: {
             labels: data.map(d => d.label),
             datasets: [{
-              label: "Leads",
+              label: "Volume",
               data: data.map(d => d.count),
               borderColor: "#4F46E5",
-              borderWidth: 4,
-              tension: 0.4,
+              borderWidth: 3,
+              tension: 0.35,
               fill: true,
-              backgroundColor: mainGradient,
-              pointBackgroundColor: "#ffffff",
-              pointBorderColor: "#4F46E5",
-              pointBorderWidth: 2,
+              backgroundColor: areaGradient,
               pointRadius: 0,
               pointHoverRadius: 6,
+              pointHoverBackgroundColor: "#4F46E5",
+              pointHoverBorderColor: "#ffffff",
+              pointHoverBorderWidth: 2,
             }],
           },
           options: {
@@ -273,7 +278,7 @@ function VelocityMap({ data }: { data: { label: string; count: number }[] }) {
             maintainAspectRatio: false,
             plugins: { legend: { display: false } },
             scales: {
-              y: { beginAtZero: true, grid: { color: "#F1F5F9" }, ticks: { font: { size: 9 }, color: "#94A3B8" } },
+              y: { beginAtZero: true, grid: { color: "#F8FAFC" }, ticks: { font: { size: 9 }, color: "#94A3B8" } },
               x: { grid: { display: false }, ticks: { font: { size: 9 }, color: "#94A3B8" } },
             },
           },
@@ -284,17 +289,18 @@ function VelocityMap({ data }: { data: { label: string; count: number }[] }) {
   }, [data]);
 
   return (
-    <div className="glass-card-premium p-8 rounded-[2.5rem] flex-1 min-h-[380px] flex flex-col h-full text-left">
-      <div className="flex items-center justify-between mb-10">
+    <div className="dashboard-card p-8 flex-1 flex flex-col h-full animate-fade-in">
+      <div className="flex items-center justify-between mb-8">
         <div>
-          <h3 className="text-base font-black text-slate-900 tracking-tight uppercase">Capture Velocity</h3>
-          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Acquisition Index (7D)</p>
+          <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Capture Velocity</h3>
+          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Global acquisition index</p>
         </div>
-        <div className="px-4 py-2 bg-slate-50 rounded-2xl border border-slate-100">
-          <span className="text-[10px] font-black text-indigo-600 uppercase tracking-widest">Real-time Feed</span>
+        <div className="flex items-center gap-2 text-[10px] font-black text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-full border border-indigo-100">
+          <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></span>
+          LIVE FEED
         </div>
       </div>
-      <div className="flex-1"><canvas ref={chartRef}></canvas></div>
+      <div className="flex-1 min-h-[220px]"><canvas ref={chartRef}></canvas></div>
     </div>
   );
 }
@@ -312,18 +318,18 @@ function FunnelAnatomy({ metrics }: { metrics: any }) {
             labels: ["Qualified", "New", "Pending", "Trash"],
             datasets: [{
               data: [metrics.qualifiedLeads, metrics.newLeads, metrics.pendingLeads, metrics.discardedLeads],
-              backgroundColor: ["#4F46E5", "#3B82F6", "#F59E0B", "#F1F5F9"],
+              backgroundColor: ["#4F46E5", "#CBD5E1", "#94A3B8", "#F1F5F9"],
               borderWidth: 0,
-              borderRadius: 10,
-              spacing: 4,
+              borderRadius: 8,
+              spacing: 2,
             }],
           },
           options: {
             responsive: true,
             maintainAspectRatio: false,
-            cutout: "80%",
+            cutout: "85%",
             plugins: { legend: { display: false } },
-            animation: { animateRotate: true, duration: 1500 },
+            animation: { animateRotate: true, duration: 1000 },
           },
         });
       }
@@ -332,28 +338,27 @@ function FunnelAnatomy({ metrics }: { metrics: any }) {
   }, [metrics]);
 
   return (
-    <div className="glass-card-premium p-8 rounded-[2.5rem] w-full lg:w-[320px] shrink-0 flex flex-col h-full text-left">
+    <div className="dashboard-card p-8 w-full lg:w-[320px] shrink-0 flex flex-col h-full animate-fade-in" style={{ animationDelay: '0.1s' }}>
       <div className="mb-8">
-        <h3 className="text-base font-black text-slate-900 tracking-tight uppercase">Portfolio</h3>
-        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Yield Segmentation</p>
+        <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Portfolio</h3>
+        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Segmentation Architecture</p>
       </div>
-      <div className="relative flex-1 min-h-[180px] mb-8">
+      <div className="relative flex-1 min-h-[160px] mb-8">
         <canvas ref={chartRef}></canvas>
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-          <p className="text-4xl font-black text-slate-900 tracking-tighter text-center">
+          <p className="text-3xl font-black text-slate-900 tracking-tight">
             {metrics.totalLeads > 0 ? Math.round((metrics.qualifiedLeads / metrics.totalLeads) * 100) : 0}%
           </p>
-          <p className="text-[9px] font-black text-indigo-500 uppercase tracking-widest">Global Yield</p>
+          <p className="text-[9px] font-black text-indigo-600 uppercase tracking-widest mt-1">Yield</p>
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-3 pt-6 border-t border-slate-100">
-        <div className="bg-slate-50/80 p-4 rounded-3xl border border-slate-100 flex flex-col items-center">
-          <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 text-center">Conversion</p>
-          <p className="text-sm font-black text-slate-900 tracking-tight">{metrics.conversionRate}%</p>
+      <div className="space-y-3 pt-6 border-t border-slate-100">
+        <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-widest">
+          <span className="text-slate-400">Conversion Rate</span>
+          <span className="text-slate-900">{metrics.conversionRate}%</span>
         </div>
-        <div className="bg-slate-900 p-4 rounded-3xl flex flex-col items-center">
-          <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1 text-center">Target</p>
-          <p className="text-sm font-black text-white tracking-tight">12.0%</p>
+        <div className="h-1 w-full bg-slate-100 rounded-full overflow-hidden">
+          <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${Math.min(metrics.conversionRate, 100)}%` }}></div>
         </div>
       </div>
     </div>
@@ -418,6 +423,8 @@ export default function DashboardPage() {
   const isManuallyAdvancingRef = useRef(false);
   // Ref to track current call state (for use in closures)
   const currentCallRef = useRef<any>(null);
+  // Ref to track current active lead ID (for use in closures to prevent race conditions)
+  const activeLeadIdRef = useRef<string | null>(null);
 
   // Overview Metrics State
   const [metrics, setMetrics] = useState({
@@ -460,19 +467,42 @@ export default function DashboardPage() {
   const fetchLeadActivities = useCallback(async (leadId: string) => {
     try {
       console.log('Fetching activities for lead:', leadId);
+
+      // CRITICAL: Only clear activities if we're fetching for a different lead
+      // This prevents clearing activities unnecessarily during rapid lead changes
+      setLeadActivities((prevActivities) => {
+        // Only clear if the current activities belong to a different lead
+        if (prevActivities.length > 0 && prevActivities[0]?.lead_id !== leadId) {
+          console.log('Clearing activities - switching from lead', prevActivities[0]?.lead_id, 'to', leadId);
+          return [];
+        }
+        // Keep current activities if they belong to the same lead (prevents flickering)
+        return prevActivities;
+      });
+
+      // Fetch ALL historical activities for this lead (no limit)
+      // This ensures we show the complete activity history, not just recent ones
       const { data, error } = await supabase
         .from('lead_activities')
         .select('*')
         .eq('lead_id', leadId)
-        .order('created_at', { ascending: false })
-        .limit(50);
+        .order('created_at', { ascending: false });
 
       if (error) {
         console.error('Error fetching activities:', error);
         throw error;
       }
 
-      console.log('Fetched activities:', data);
+      console.log('Fetched ALL historical activities for lead', leadId, '- Total count:', data?.length || 0, 'activities');
+
+      // CRITICAL: Before setting activities, verify that activeLead hasn't changed
+      // This prevents race conditions where we fetch for lead A but activeLead is now lead B
+      // Use ref to get the current value (not stale closure value)
+      const currentActiveLeadId = activeLeadIdRef.current;
+      if (currentActiveLeadId !== leadId) {
+        console.log('Active lead changed during fetch - discarding results. Fetched for:', leadId, 'Current active:', currentActiveLeadId);
+        return; // Don't set activities if we're no longer viewing this lead
+      }
 
       // Normalize activities to ensure activity_type is set (fallback to 'type' if activity_type doesn't exist)
       const normalizedActivities = (data || []).map((activity: any) => ({
@@ -480,11 +510,35 @@ export default function DashboardPage() {
         activity_type: activity.activity_type || activity.type?.toLowerCase() || 'unknown',
       }));
 
-      console.log('Normalized activities:', normalizedActivities);
-      setLeadActivities(normalizedActivities);
+      // CRITICAL: Double-check that all activities belong to the requested lead
+      // This is a safety check to prevent displaying activities from other leads
+      const filteredActivities = normalizedActivities.filter((activity: any) => {
+        const belongsToLead = activity.lead_id === leadId;
+        if (!belongsToLead) {
+          console.error('CRITICAL: Activity does not belong to requested lead!', {
+            activityId: activity.id,
+            activityLeadId: activity.lead_id,
+            requestedLeadId: leadId
+          });
+        }
+        return belongsToLead;
+      });
+
+      // CRITICAL: Final check before setting - ensure activeLead still matches
+      // This prevents setting activities for a lead that's no longer active
+      // Use ref to get the current value (not stale closure value)
+      if (activeLeadIdRef.current === leadId) {
+        console.log('Normalized and filtered activities for lead', leadId, '- Displaying', filteredActivities.length, 'historical activities (all activities from database)');
+        setLeadActivities(filteredActivities);
+      } else {
+        console.log('Active lead changed after fetch - not setting activities. Fetched for:', leadId, 'Current active:', activeLeadIdRef.current);
+      }
     } catch (error) {
       console.error('Error fetching activities:', error);
-      setLeadActivities([]);
+      // Only clear activities on error if we're still viewing the same lead
+      if (activeLeadIdRef.current === leadId) {
+        setLeadActivities([]);
+      }
     }
   }, []);
 
@@ -506,6 +560,9 @@ export default function DashboardPage() {
     }
     setShowTagInput(false);
     setNewTagValue('');
+
+    // Update ref to track current active lead ID (for use in closures to prevent race conditions)
+    activeLeadIdRef.current = activeLead?.id || null;
 
     // Fetch activities when active lead changes
     if (activeLead?.id) {
@@ -1337,11 +1394,11 @@ export default function DashboardPage() {
     // Only check flag at the start - if it's set, skip this run
     // But allow it to proceed if flag gets cleared during the timeout
     const wasManuallyAdvancing = isManuallyAdvancingRef.current;
-    
+
     if (isPowerDialing && !currentCall && powerDialingQueueSnapshotRef.current.length > 0 && powerDialingIndex < powerDialingQueueSnapshotRef.current.length && webPhone && webPhoneReady) {
       // If we were manually advancing, wait a bit longer to see if it completes
       const delay = wasManuallyAdvancing ? 1000 : 3000;
-      
+
       // Call just ended naturally (not from manual advancement), wait a moment then move to next lead
       const timer = setTimeout(() => {
         // Check flag again - if it's still set, skip (manual advancement is in progress)
@@ -1350,7 +1407,7 @@ export default function DashboardPage() {
           console.log('useEffect: Skipping auto-advance - manual advancement still in progress');
           return;
         }
-        
+
         // If flag was set but is now cleared, it means manual advancement completed and dial started
         // The currentCall check below will prevent duplicate dialing, so we can proceed
         if (wasManuallyAdvancing && isManuallyAdvancingRef.current === false) {
@@ -1381,7 +1438,7 @@ export default function DashboardPage() {
           setTimeout(() => {
             // Clear the flag when dial starts (in case it was set from manual advancement)
             isManuallyAdvancingRef.current = false;
-            
+
             // Double-check conditions before dialing - use ref to get latest currentCall value
             const hasActiveCall = currentCallRef.current !== null;
             if (nextLead?.phone && webPhone && webPhoneReady && !hasActiveCall && isPowerDialing) {
@@ -1392,7 +1449,7 @@ export default function DashboardPage() {
                 console.log(`useEffect: Dialing lead ${nextIndex + 1} of ${snapshot.length} from snapshot`);
                 console.log('useEffect: Conditions check - phone:', !!nextLead.phone, 'webPhone:', !!webPhone, 'webPhoneReady:', webPhoneReady, 'hasActiveCall:', hasActiveCall, 'isPowerDialing:', isPowerDialing);
                 const cleanNumber = nextLead.phone.replace(/\D/g, '');
-                
+
                 // Ensure video elements are accessible
                 if (!remoteVideoRef.current || !localVideoRef.current) {
                   console.error('useEffect: Video elements not available');
@@ -1444,7 +1501,7 @@ export default function DashboardPage() {
 
                   setCallStartTime(null);
                   setCurrentCall(null);
-                currentCallRef.current = null;
+                  currentCallRef.current = null;
                 });
 
                 session.on('rejected', () => {
@@ -1468,7 +1525,7 @@ export default function DashboardPage() {
 
                   setCallStartTime(null);
                   setCurrentCall(null);
-                currentCallRef.current = null;
+                  currentCallRef.current = null;
                 });
 
                 session.on('failed', () => {
@@ -1492,7 +1549,7 @@ export default function DashboardPage() {
 
                   setCallStartTime(null);
                   setCurrentCall(null);
-                currentCallRef.current = null;
+                  currentCallRef.current = null;
                 });
               } catch (error: any) {
                 console.error('useEffect: Failed to dial:', error);
@@ -1692,6 +1749,7 @@ export default function DashboardPage() {
   // Fetch Overview Metrics
   const fetchDashboardMetrics = useCallback(async () => {
     try {
+      // 1. Fetch leads for status distribution and growth
       const { data: leads, error } = await supabase.from("leads").select("status, created_at");
       if (error) throw error;
 
@@ -1707,7 +1765,6 @@ export default function DashboardPage() {
         d.setDate(d.getDate() - i);
         const dayName = days[d.getDay()];
         const dateStr = d.toISOString().split('T')[0];
-
         const count = leads.filter(l => l.created_at.startsWith(dateStr)).length;
         last7Days.push({ label: i === 0 ? "Today" : dayName, count });
       }
@@ -1724,16 +1781,54 @@ export default function DashboardPage() {
       const pendingCount = leads.filter(l => ["Call Back", "Voice Mail", "Left Voice Mail"].includes(l.status)).length;
 
       const conversion = total > 0 ? (qualifiedCount / total) * 100 : 0;
-
       const growthValue = yesterdayLeads.length > 0
         ? ((todayLeads.length - yesterdayLeads.length) / yesterdayLeads.length) * 100
         : todayLeads.length > 0 ? 100 : 0;
 
-      // Generate activity heatmap (24 hours, default to 0)
-      const heatmap = Array.from({ length: 24 }, (_, i) => ({
-        hour: i,
-        count: 0, // TODO: Calculate actual activity count per hour
-      }));
+      // 2. Fetch activities for behavioral analytics
+      const { data: activities, error: activityError } = await supabase
+        .from("lead_activities")
+        .select("created_at, activity_type, metadata");
+
+      let heatmap = Array.from({ length: 24 }, (_, i) => ({ hour: i, count: 0 }));
+      let callsToday = 0;
+      let totalDuration = 0;
+      let callsWithDuration = 0;
+
+      if (!activityError && activities) {
+        // Build Heatmap for LAST 24 HOURS (Rolling index)
+        activities.forEach(act => {
+          const actDate = new Date(act.created_at);
+          // Only activities from today for the 24 hour mapping or all time?
+          // Usually, heatmaps represent "Average" or "Recent". Let's do Recent 3 Days to make it look active.
+          const threeDaysAgo = new Date();
+          threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+
+          if (actDate >= threeDaysAgo) {
+            const hour = actDate.getHours();
+            heatmap[hour].count++;
+          }
+
+          // Today's Stats
+          if (act.created_at >= startOfToday) {
+            if (act.activity_type === 'call') {
+              callsToday++;
+
+              // Handle metadata duration
+              let duration = 0;
+              if (act.metadata) {
+                const meta = typeof act.metadata === 'string' ? JSON.parse(act.metadata) : act.metadata;
+                duration = parseInt(meta.duration || 0);
+              }
+
+              if (duration > 0) {
+                totalDuration += duration;
+                callsWithDuration++;
+              }
+            }
+          }
+        });
+      }
 
       setMetrics({
         totalLeads: total,
@@ -1746,8 +1841,8 @@ export default function DashboardPage() {
         growth: Math.round(growthValue * 10) / 10,
         dailyVolume: last7Days,
         activityHeatmap: heatmap,
-        callsToday: 0, // TODO: Calculate actual calls today
-        avgDuration: 0, // TODO: Calculate actual average duration
+        callsToday: callsToday,
+        avgDuration: callsWithDuration > 0 ? Math.round(totalDuration / callsWithDuration) : 0,
       });
     } catch (err) {
       console.error("Error fetching metrics:", err);
@@ -1853,15 +1948,19 @@ export default function DashboardPage() {
       console.log('Activity saved successfully:', data);
 
       // Refresh activities for the active lead immediately
-      if (activeLead?.id === leadId) {
-        console.log('Refreshing activities after save for lead:', leadId);
-        // Add a small delay to ensure the database has committed the transaction
-        setTimeout(async () => {
+      // CRITICAL: During power dialing, activeLead might change rapidly, so we need to check
+      // if the saved activity's lead is still the active lead before refreshing
+      // Use a ref or check the current state to avoid race conditions
+      setTimeout(async () => {
+        // Re-check activeLead after delay to handle rapid changes during power dialing
+        const currentActiveLead = activeLead;
+        if (currentActiveLead?.id === leadId) {
+          console.log('Refreshing activities after save for lead:', leadId);
           await fetchLeadActivities(leadId);
-        }, 500);
-      } else {
-        console.log('Active lead ID does not match:', activeLead?.id, 'vs', leadId);
-      }
+        } else {
+          console.log('Active lead changed during save - not refreshing activities. Saved for:', leadId, 'Current active:', currentActiveLead?.id);
+        }
+      }, 500);
     } catch (error) {
       console.error('Error saving activity:', error);
       // Don't throw - we don't want to break the main flow if activity saving fails
@@ -2232,7 +2331,7 @@ export default function DashboardPage() {
                   // Clear the flag immediately when dial starts - this allows useEffect to work for future calls
                   isManuallyAdvancingRef.current = false;
                   console.log('handleSubmitDisposition: Cleared manual advancement flag - dial starting');
-                  
+
                   // Use snapshot length for accurate count
                   setWebPhoneStatus(`Dialing ${nextLead.phone}... (${nextIndex + 1}/${snapshot.length})`);
                   console.log(`handleSubmitDisposition: Dialing lead ${nextIndex + 1} of ${snapshot.length} from snapshot`);
@@ -2242,7 +2341,7 @@ export default function DashboardPage() {
                   });
 
                   setCurrentCall(session);
-                currentCallRef.current = session;
+                  currentCallRef.current = session;
 
                   session.on('accepted', () => {
                     setWebPhoneStatus('Call connected');
@@ -2276,7 +2375,7 @@ export default function DashboardPage() {
 
                     setCallStartTime(null);
                     setCurrentCall(null);
-                currentCallRef.current = null;
+                    currentCallRef.current = null;
                   });
 
                   session.on('rejected', () => {
@@ -2302,7 +2401,7 @@ export default function DashboardPage() {
 
                     setCallStartTime(null);
                     setCurrentCall(null);
-                currentCallRef.current = null;
+                    currentCallRef.current = null;
                   });
 
                   session.on('failed', () => {
@@ -2328,13 +2427,13 @@ export default function DashboardPage() {
 
                     setCallStartTime(null);
                     setCurrentCall(null);
-                currentCallRef.current = null;
+                    currentCallRef.current = null;
                   });
                 } catch (error: any) {
                   console.error('handleSubmitDisposition: Failed to dial next lead:', error);
                   setWebPhoneStatus(`Dial failed: ${error.message || 'Unknown error'}`);
                   setCurrentCall(null);
-                currentCallRef.current = null;
+                  currentCallRef.current = null;
                   isManuallyAdvancingRef.current = false; // Clear flag on error
                 }
               } else {
@@ -2691,96 +2790,121 @@ export default function DashboardPage() {
     <>
       <div className="bg-[#F8FAFC] text-slate-900 h-screen overflow-hidden flex" style={{ fontFamily: "var(--font-geist-sans), 'Inter', sans-serif" }}>
         <style>{`
-          :root {
-            --p-indigo: #4F46E5;
-            --p-slate-900: #0F172A;
-            --p-slate-50: #F8FAFC;
-            --p-accent: #6366f1;
-          }
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #E2E8F0; border-radius: 10px; }
-        ::-webkit-scrollbar-thumb:hover { background: #CBD5E1; }
-        .active-ring { box-shadow: 0 0 0 2px #4F46E5, 0 0 0 4px rgba(79, 70, 229, 0.1); }
-        .checkbox-custom:checked { background-color: #4F46E5; border-color: #4F46E5; }
-        
-        /* Glass Modal Styles */
-        .glass-modal {
-          background: rgba(255, 255, 255, 0.8);
-          backdrop-filter: blur(24px) saturate(200%);
-          border: 1px solid rgba(255, 255, 255, 0.4);
-          box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.1);
+          /* Enterprise Design System - Stable & Premium */
+        :root {
+          --p-indigo: #4F46E5;
+          --p-indigo-soft: #EEF2FF;
+          --p-emerald: #10B981;
+          --p-slate-50: #F8FAFC;
+          --p-slate-100: #F1F5F9;
+          --p-slate-200: #E2E8F0;
+          --p-slate-800: #1E293B;
+          --p-slate-900: #0F172A;
+          --card-radius: 24px;
         }
-        .glass-panel {
+
+        .dashboard-card {
           background: #ffffff;
-          border: 1px solid #F1F5F9;
-          box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.01), 0 1px 2px -1px rgba(0, 0, 0, 0.01);
-          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        .glass-panel:hover {
-          box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.04), 0 4px 6px -4px rgba(0, 0, 0, 0.04);
-          border-color: #E2E8F0;
-        }
-        
-        .glass-card-premium {
-          background: rgba(255, 255, 255, 0.7);
-          backdrop-filter: blur(16px);
-          border: 1px solid rgba(255, 255, 255, 0.5);
-          box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.04);
-          transition: all 0.4s ease;
-        }
-        .glass-card-premium:hover {
-          transform: translateY(-5px);
-          box-shadow: 0 12px 40px 0 rgba(31, 38, 135, 0.08);
-          border-color: rgba(99, 102, 241, 0.2);
-        }
-
-        .text-gradient-indigo {
-          background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-        }
-
-        @keyframes pulse-soft {
-          0%, 100% { opacity: 1; transform: scale(1); }
-          50% { opacity: 0.8; transform: scale(1.05); }
-        }
-        .animate-pulse-soft { animation: pulse-soft 3s infinite ease-in-out; }
-
-        .glass-input {
-          background: rgba(248, 250, 252, 0.8);
-          border: 1px solid #E2E8F0;
+          border: 1px solid var(--p-slate-200);
+          border-radius: var(--card-radius);
+          box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
           transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
         }
-        .glass-input:focus {
-          background: #ffffff;
+
+        .dashboard-card:hover {
           border-color: var(--p-indigo);
-          box-shadow: 0 0 0 1px var(--p-indigo);
-          outline: none;
+          box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
         }
-        .glass-label {
-          font-size: 11px;
-          font-weight: 700;
-          text-transform: uppercase;
+
+        .stats-card {
+          padding: 24px;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          position: relative;
+          overflow: hidden;
+        }
+
+        .stats-icon {
+          width: 44px;
+          height: 44px;
+          border-radius: 12px;
+          display: flex;
+          items-center;
+          justify-content: center;
+          font-size: 18px;
+        }
+
+        .chart-panel {
+          padding: 24px;
+          height: 100%;
+          display: flex;
+          flex-direction: column;
+        }
+
+        .active-stream-item {
+          padding: 16px;
+          border-radius: 16px;
+          background: #ffffff;
+          border: 1px solid var(--p-slate-100);
+          transition: all 0.2s ease;
+        }
+
+        .active-stream-item:hover {
+          background: var(--p-slate-50);
+          border-color: var(--p-indigo);
+          transform: translateX(4px);
+        }
+
+        .status-badge {
+          font-size: 10px;
+          font-weight: 800;
           letter-spacing: 0.05em;
-          color: #64748B;
-          margin-bottom: 6px;
-          display: block;
+          padding: 4px 8px;
+          border-radius: 6px;
+          text-transform: uppercase;
+        }
+
+        .nav-link {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 10px 14px;
+          border-radius: 12px;
+          font-size: 14px;
+          font-weight: 600;
+          transition: all 0.2s ease;
+          color: #94A3B8;
+        }
+
+        .nav-link:hover {
+          background: rgba(255, 255, 255, 0.05);
+          color: #ffffff;
+        }
+
+        .nav-link.active {
+          background: var(--p-indigo);
+          color: #ffffff;
+          box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25);
         }
 
         .btn-premium {
-          transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-          box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+          transition: all 0.2s ease;
+          font-weight: 700;
+          letter-spacing: -0.01em;
         }
-        .btn-premium:hover {
-          transform: translateY(-1px);
-          box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);
-        }
+
         .btn-premium:active {
-          transform: translateY(0px);
+          transform: scale(0.98);
         }
-        .chart-container-premium {
-          filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.02));
+
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+
+        .animate-fade-in {
+          animation: fadeIn 0.4s ease-out forwards;
         }
       `}</style>
 
@@ -2806,49 +2930,40 @@ export default function DashboardPage() {
             <span className="font-bold tracking-tight text-lg">Integrated <span className="text-blue-400">Financial</span></span>
           </div>
 
-          <nav className="px-4 space-y-1">
+          <nav className="px-3 space-y-1">
             <button
               onClick={() => setActiveView('overview')}
-              className={`w-full flex items-center space-x-3 px-3 py-2 rounded-xl transition-all ${activeView === 'overview'
-                ? 'bg-blue-600/10 text-blue-400 border border-blue-600/20'
-                : 'text-slate-400 hover:bg-white/5 hover:text-white'
-                }`}
+              className={`nav-link w-full ${activeView === 'overview' ? 'active' : ''}`}
             >
-              <i className="fa-solid fa-house-chimney w-5"></i> <span className="font-medium text-sm">Overview</span>
+              <i className="fa-solid fa-house-chimney w-5 text-center"></i>
+              <span>Dashboard</span>
             </button>
 
             <button
               onClick={() => setActiveView('dialer')}
-              className={`w-full flex items-center space-x-3 px-3 py-2 rounded-xl transition-all ${activeView === 'dialer'
-                ? 'bg-blue-600/10 text-blue-400 border border-blue-600/20'
-                : 'text-slate-400 hover:bg-white/5 hover:text-white'
-                }`}
+              className={`nav-link w-full ${activeView === 'dialer' ? 'active' : ''}`}
             >
-              <i className="fa-solid fa-headset w-5"></i> <span className="font-medium text-sm">Power Dialer</span>
+              <i className="fa-solid fa-headset w-5 text-center"></i>
+              <span>Power Dialer</span>
             </button>
 
             <button
               onClick={() => setActiveView('contacts')}
-              className={`w-full flex items-center space-x-3 px-3 py-2 rounded-xl transition-all ${activeView === 'contacts'
-                ? 'bg-blue-600/10 text-blue-400 border border-blue-600/20'
-                : 'text-slate-400 hover:bg-white/5 hover:text-white'
-                }`}
+              className={`nav-link w-full ${activeView === 'contacts' ? 'active' : ''}`}
             >
-              <i className="fa-solid fa-user-group w-5 text-sm"></i> <span className="font-medium text-sm">Contacts</span>
+              <i className="fa-solid fa-user-group w-5 text-center"></i>
+              <span>CRM Contacts</span>
             </button>
-
-
-
-            {/* <a href="#" className="flex items-center space-x-3 px-3 py-2 text-slate-400 hover:bg-white/5 hover:text-white rounded-xl transition-all">
+          </nav>
+          {/* <a href="#" className="flex items-center space-x-3 px-3 py-2 text-slate-400 hover:bg-white/5 hover:text-white rounded-xl transition-all">
             <i className="fa-solid fa-layer-group w-5 text-sm"></i> <span className="font-medium text-sm">Pipelines</span>
           </a>
           <a href="#" className="flex items-center space-x-3 px-3 py-2 text-slate-400 hover:bg-white/5 hover:text-white rounded-xl transition-all">
             <i className="fa-solid fa-calendar-check w-5 text-sm"></i> <span className="font-medium text-sm">Appointments</span>
-          </a>
-          <a href="#" className="flex items-center space-x-3 px-3 py-2 text-slate-400 hover:bg-white/5 hover:text-white rounded-xl">
+          </a> */}
+          {/* <a href="#" className="flex items-center space-x-3 px-3 py-2 text-slate-400 hover:bg-white/5 hover:text-white rounded-xl">
             <i className="fa-solid fa-chart-column w-5 text-sm"></i> <span className="font-medium text-sm">Reporting</span>
           </a> */}
-          </nav>
 
           {/* Queue Section (Only in Dialer View) */}
           {activeView === 'dialer' && (() => {
@@ -2976,123 +3091,127 @@ export default function DashboardPage() {
         {/* VIEW: OVERVIEW */}
         {activeView === 'overview' && (
           <main className="flex-1 p-8 lg:p-12 overflow-y-auto bg-[#F8FAFC]">
-            <header className="max-w-7xl mx-auto flex justify-between items-end mb-12">
-              <div className="space-y-2">
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-2 px-3 py-1 bg-white border border-slate-100 rounded-full shadow-sm">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                    <span className="text-[10px] font-black text-slate-700 uppercase tracking-widest">System Active</span>
-                  </div>
-                  <span className="text-slate-300">/</span>
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Dashboard Hub</span>
-                </div>
-                <h1 className="text-4xl font-black tracking-tighter text-slate-900 leading-none">
-                  Integrated Financial <span className="font-extralight italic text-slate-400">OS</span>
+            <header className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12">
+              <div>
+                <nav className="flex items-center gap-2 mb-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                  <span className="text-indigo-600">Enterprise</span>
+                  <i className="fa-solid fa-chevron-right text-[8px] opacity-30"></i>
+                  <span>Intelligence Hub</span>
+                </nav>
+                <h1 className="text-4xl font-black tracking-tight text-slate-900 leading-none">
+                  Performance <span className="text-indigo-600 italic">Portfolio</span>
                 </h1>
               </div>
 
-              <div className="hidden lg:flex items-center gap-8 pb-1">
-                <div className="text-right text-left">
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 text-left">Network Health</p>
-                  <p className="text-sm font-black text-slate-900 flex items-center justify-start gap-2">
-                    Operational
-                  </p>
-                </div>
-                <div className="h-10 w-px bg-slate-100"></div>
-                <div className="text-right text-left">
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1 text-left">Last Sync</p>
-                  <p className="text-sm font-black text-indigo-600">Just Now</p>
+              <div className="flex items-center gap-4">
+                <div className="bg-white border border-slate-200 rounded-2xl px-5 py-3 flex items-center gap-4 shadow-sm">
+                  <div className="text-right">
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5 text-left">System Health</p>
+                    <p className="text-xs font-black text-slate-800 flex items-center gap-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                      Operational
+                    </p>
+                  </div>
+                  <div className="w-px h-8 bg-slate-100"></div>
+                  <div className="text-right">
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5 text-left">Environment</p>
+                    <p className="text-xs font-black text-indigo-600">Production v4.2</p>
+                  </div>
                 </div>
               </div>
             </header>
 
-            <div className="max-w-7xl mx-auto space-y-8">
-              {/* STATUS ROW */}
+            <div className="max-w-7xl mx-auto space-y-10">
+              {/* TOP KPIs */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <MetricCard
-                  title="Total Universe"
+                  title="Total Inventory"
                   value={metrics.totalLeads.toLocaleString()}
-                  subtext="Global Distribution Index"
-                  icon="fa-globe"
+                  subtext="Master distribution index"
+                  icon="fa-database"
                   trend={{ value: metrics.growth, positive: metrics.growth >= 0 }}
                   colorClass="bg-indigo-50 text-indigo-600"
                 />
                 <MetricCard
-                  title="Today's Intake"
+                  title="New Leads 24H"
                   value={metrics.todayCount}
-                  subtext="Real-time Capture Hub"
-                  icon="fa-bolt"
+                  subtext="Real-time capture stream"
+                  icon="fa-bolt-lightning"
                   colorClass="bg-blue-50 text-blue-600"
                 />
                 <MetricCard
-                  title="Daily Interactions"
+                  title="Interaction KPI"
                   value={metrics.callsToday}
-                  subtext="Voice Engagement Vol."
-                  icon="fa-phone-volume"
+                  subtext="Daily voice interaction vol."
+                  icon="fa-headset"
                   colorClass="bg-emerald-50 text-emerald-600"
                 />
                 <MetricCard
-                  title="Engagement Time"
+                  title="Mean Engagement"
                   value={metrics.avgDuration > 0 ? `${Math.floor(metrics.avgDuration / 60)}m ${metrics.avgDuration % 60}s` : '0s'}
-                  subtext="Mean Resolution Time"
-                  icon="fa-stopwatch"
+                  subtext="Avg session resolution"
+                  icon="fa-clock-rotate-left"
                   colorClass="bg-amber-50 text-amber-600"
                 />
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-                <div className="lg:col-span-8 flex flex-col gap-8">
-                  <div className="flex flex-col md:flex-row gap-8 min-h-[420px]">
-                    <div className="flex-1 flex h-full min-w-0"><VelocityMap data={metrics.dailyVolume} /></div>
-                    <div className="h-full flex shrink-0"><FunnelAnatomy metrics={metrics} /></div>
-                  </div>
-                  <div className="min-h-[220px] h-full flex"><IntelligenceHeatmap data={metrics.activityHeatmap} /></div>
+              {/* ANALYTICS SECTION */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch">
+                <div className="lg:col-span-8">
+                  <VelocityMap data={metrics.dailyVolume} />
+                </div>
+                <div className="lg:col-span-4">
+                  <FunnelAnatomy metrics={metrics} />
+                </div>
+              </div>
+
+              {/* OPERATIONAL SECTION */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch pb-12">
+                <div className="lg:col-span-7">
+                  <IntelligenceHeatmap data={metrics.activityHeatmap} />
                 </div>
 
-                <div className="lg:col-span-4 h-full sticky top-8">
-                  <div className="glass-card-premium p-8 rounded-[2.5rem] h-full flex flex-col border border-slate-100 min-h-[660px]">
-                    <div className="flex items-center justify-between mb-8">
+                <div className="lg:col-span-5">
+                  <div className="dashboard-card h-full flex flex-col animate-fade-in" style={{ animationDelay: '0.3s' }}>
+                    <div className="p-6 border-b border-slate-100 flex items-center justify-between">
                       <div>
-                        <h3 className="text-sm font-black text-slate-900 tracking-tight uppercase">Recent Intelligence</h3>
-                        <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5">Live Stream</p>
+                        <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest">Recent Intelligence</h3>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase mt-1 tracking-widest">Active Capture Stream</p>
                       </div>
                       <button
                         onClick={() => setActiveView('contacts')}
-                        className="w-10 h-10 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-400 hover:text-indigo-600 hover:border-indigo-100 hover:bg-white transition-all group"
+                        className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 text-slate-400 hover:text-indigo-600 hover:border-indigo-100 transition-all"
                       >
-                        <i className="fa-solid fa-arrow-right text-xs group-hover:translate-x-0.5 transition-transform"></i>
+                        <i className="fa-solid fa-up-right-from-square text-[10px]"></i>
                       </button>
                     </div>
 
-                    <div className="space-y-4 flex-1 overflow-y-auto pr-2 -mr-2">
-                      {leads.slice(0, 8).map((lead, idx) => (
+                    <div className="flex-1 p-6 space-y-3 overflow-y-auto max-h-[400px] no-scrollbar">
+                      {leads.slice(0, 6).map((lead) => (
                         <div
                           key={lead.id}
                           onClick={() => { setActiveLead(lead); setActiveView('dialer'); }}
-                          className="p-5 bg-white rounded-3xl border border-slate-100 hover:border-indigo-100 hover:shadow-xl hover:shadow-indigo-500/5 transition-all cursor-pointer group relative overflow-hidden active:scale-[0.98]"
+                          className="active-stream-item group cursor-pointer"
                         >
-                          <div className="absolute top-0 right-0 w-24 h-24 bg-slate-50/50 rounded-full blur-2xl -mr-12 -mt-12 group-hover:bg-indigo-50/50 transition-colors"></div>
-                          <div className="relative flex items-center justify-between">
+                          <div className="flex items-center justify-between">
                             <div className="flex items-center gap-4">
-                              <div className="w-11 h-11 rounded-2xl bg-slate-50 flex items-center justify-center text-[10px] font-bold text-slate-400 border border-slate-50 group-hover:text-indigo-600 group-hover:border-indigo-100 group-hover:bg-white transition-all shadow-sm">
+                              <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-[10px] font-bold text-slate-400 border border-slate-100 group-hover:bg-white group-hover:text-indigo-600 group-hover:shadow-sm transition-all uppercase">
                                 {getInitials(lead.first_name, lead.last_name)}
                               </div>
                               <div className="min-w-0">
-                                <p className="text-[13px] font-black text-slate-900 group-hover:text-indigo-600 transition-colors uppercase tracking-tight truncate w-32">
+                                <p className="text-[13px] font-black text-slate-900 group-hover:text-indigo-600 transition-all uppercase leading-none mb-1">
                                   {lead.first_name} {lead.last_name}
                                 </p>
-                                <p className="text-[10px] text-slate-400 font-bold mt-0.5 flex items-center gap-1.5 uppercase tracking-widest">
-                                  <i className="fa-regular fa-clock text-[9px]"></i>
+                                <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">
+                                  <i className="fa-regular fa-clock mr-1"></i>
                                   {getTimeAgo(lead.created_at)}
                                 </p>
                               </div>
                             </div>
                             <div className="flex flex-col items-end gap-1.5">
-                              <div className="px-2.5 py-1 bg-slate-50 rounded-lg border border-slate-100 group-hover:border-indigo-100 group-hover:bg-indigo-50/30 transition-all">
-                                <span className="text-[9px] font-black text-slate-500 group-hover:text-indigo-600 uppercase tracking-tighter">
-                                  {formatStatusForDisplay(lead.status)}
-                                </span>
-                              </div>
+                              <span className="status-badge bg-slate-50 text-slate-500 border border-slate-100 group-hover:bg-indigo-50 group-hover:text-indigo-600 group-hover:border-indigo-100 transition-all">
+                                {formatStatusForDisplay(lead.status)}
+                              </span>
                             </div>
                           </div>
                         </div>
@@ -3275,100 +3394,114 @@ export default function DashboardPage() {
                         {leadActivities.length > 0 ? (
                           <>
                             <div className="absolute left-5 top-2 bottom-2 w-0.5 bg-slate-200"></div>
-                            {leadActivities.map((activity) => {
-                              const timeAgo = formatTimeAgo(new Date(activity.created_at));
-                              // Handle metadata - it might be a string (JSON) or already an object
-                              let metadata: any = {};
-                              try {
-                                if (typeof activity.metadata === 'string') {
-                                  metadata = JSON.parse(activity.metadata);
-                                } else if (activity.metadata && typeof activity.metadata === 'object') {
-                                  metadata = activity.metadata;
+                            {leadActivities
+                              .filter((activity) => {
+                                // CRITICAL: Double-check that activity belongs to current active lead
+                                // This prevents showing activities from other leads during power dialing
+                                const belongsToActiveLead = activity.lead_id === activeLead?.id;
+                                if (!belongsToActiveLead) {
+                                  console.warn('Filtering out activity that does not belong to active lead:', {
+                                    activityId: activity.id,
+                                    activityLeadId: activity.lead_id,
+                                    activeLeadId: activeLead?.id
+                                  });
                                 }
-                              } catch (e) {
-                                console.warn('Error parsing metadata:', e);
-                                metadata = {};
-                              }
+                                return belongsToActiveLead;
+                              })
+                              .map((activity) => {
+                                const timeAgo = formatTimeAgo(new Date(activity.created_at));
+                                // Handle metadata - it might be a string (JSON) or already an object
+                                let metadata: any = {};
+                                try {
+                                  if (typeof activity.metadata === 'string') {
+                                    metadata = JSON.parse(activity.metadata);
+                                  } else if (activity.metadata && typeof activity.metadata === 'object') {
+                                    metadata = activity.metadata;
+                                  }
+                                } catch (e) {
+                                  console.warn('Error parsing metadata:', e);
+                                  metadata = {};
+                                }
 
-                              return (
-                                <div key={activity.id} className="relative pl-12">
-                                  {/* Icon based on activity type */}
-                                  <div className="absolute left-0 top-0 w-10 h-10 rounded-2xl bg-white border border-slate-200 shadow-sm flex items-center justify-center z-10">
-                                    {activity.activity_type === 'call' ? (
-                                      <i className="fa-solid fa-phone text-blue-600"></i>
-                                    ) : activity.activity_type === 'disposition_change' ? (
-                                      <i className="fa-solid fa-tag text-green-600"></i>
-                                    ) : (
-                                      <i className="fa-solid fa-circle text-slate-400"></i>
-                                    )}
-                                  </div>
-
-                                  {/* Activity content */}
-                                  <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-                                    <div className="flex justify-between items-center mb-3">
-                                      <span className="text-sm font-bold text-slate-900">
-                                        {activity.activity_type === 'call'
-                                          ? metadata?.call_result === 'rejected'
-                                            ? 'Call Rejected'
-                                            : metadata?.call_result === 'failed'
-                                              ? 'Call Failed'
-                                              : 'Call Ended'
-                                          : activity.activity_type === 'disposition_change'
-                                            ? 'Status Changed'
-                                            : activity.description}
-                                      </span>
-                                      <span className="text-[10px] font-medium text-slate-400">{timeAgo}</span>
+                                return (
+                                  <div key={activity.id} className="relative pl-12">
+                                    {/* Icon based on activity type */}
+                                    <div className="absolute left-0 top-0 w-10 h-10 rounded-2xl bg-white border border-slate-200 shadow-sm flex items-center justify-center z-10">
+                                      {activity.activity_type === 'call' ? (
+                                        <i className="fa-solid fa-phone text-blue-600"></i>
+                                      ) : activity.activity_type === 'disposition_change' ? (
+                                        <i className="fa-solid fa-tag text-green-600"></i>
+                                      ) : (
+                                        <i className="fa-solid fa-circle text-slate-400"></i>
+                                      )}
                                     </div>
 
-                                    {/* Description */}
-                                    <p className="text-sm text-slate-600 mb-2">{activity.description}</p>
+                                    {/* Activity content */}
+                                    <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                                      <div className="flex justify-between items-center mb-3">
+                                        <span className="text-sm font-bold text-slate-900">
+                                          {activity.activity_type === 'call'
+                                            ? metadata?.call_result === 'rejected'
+                                              ? 'Call Rejected'
+                                              : metadata?.call_result === 'failed'
+                                                ? 'Call Failed'
+                                                : 'Call Ended'
+                                            : activity.activity_type === 'disposition_change'
+                                              ? 'Status Changed'
+                                              : activity.description}
+                                        </span>
+                                        <span className="text-[10px] font-medium text-slate-400">{timeAgo}</span>
+                                      </div>
 
-                                    {/* Call details */}
-                                    {activity.activity_type === 'call' && (
-                                      <div className="bg-blue-50 rounded-lg p-3 border border-blue-100 mt-3 space-y-2">
-                                        {metadata?.phone_number && (
-                                          <div className="flex items-center gap-2">
-                                            <i className="fa-solid fa-phone text-blue-600 text-xs"></i>
-                                            <span className="text-xs font-semibold text-blue-700">
-                                              {metadata.phone_number}
-                                            </span>
-                                            {metadata?.call_type && (
-                                              <span className="text-xs text-blue-500">
-                                                ({metadata.call_type === 'outbound' ? 'Outbound' : 'Inbound'})
+                                      {/* Description */}
+                                      <p className="text-sm text-slate-600 mb-2">{activity.description}</p>
+
+                                      {/* Call details */}
+                                      {activity.activity_type === 'call' && (
+                                        <div className="bg-blue-50 rounded-lg p-3 border border-blue-100 mt-3 space-y-2">
+                                          {metadata?.phone_number && (
+                                            <div className="flex items-center gap-2">
+                                              <i className="fa-solid fa-phone text-blue-600 text-xs"></i>
+                                              <span className="text-xs font-semibold text-blue-700">
+                                                {metadata.phone_number}
                                               </span>
-                                            )}
-                                          </div>
-                                        )}
-                                        {metadata?.duration_seconds !== undefined && metadata.duration_seconds > 0 && (
-                                          <div className="flex items-center gap-2">
-                                            <i className="fa-solid fa-clock text-blue-600 text-xs"></i>
-                                            <span className="text-xs font-semibold text-blue-700">
-                                              Duration: {formatCallDuration(metadata.duration_seconds)}
+                                              {metadata?.call_type && (
+                                                <span className="text-xs text-blue-500">
+                                                  ({metadata.call_type === 'outbound' ? 'Outbound' : 'Inbound'})
+                                                </span>
+                                              )}
+                                            </div>
+                                          )}
+                                          {metadata?.duration_seconds !== undefined && metadata.duration_seconds > 0 && (
+                                            <div className="flex items-center gap-2">
+                                              <i className="fa-solid fa-clock text-blue-600 text-xs"></i>
+                                              <span className="text-xs font-semibold text-blue-700">
+                                                Duration: {formatCallDuration(metadata.duration_seconds)}
+                                              </span>
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+
+                                      {/* Status change details */}
+                                      {activity.activity_type === 'disposition_change' && (
+                                        <div className="bg-green-50 rounded-lg p-3 border border-green-100 mt-3">
+                                          <div className="flex items-center gap-2 text-xs">
+                                            <span className="text-slate-500">From:</span>
+                                            <span className="px-2 py-0.5 rounded bg-white border border-green-200 text-green-700 font-semibold">
+                                              {metadata?.old_status_display || metadata?.old_status || 'Unknown'}
+                                            </span>
+                                            <i className="fa-solid fa-arrow-right text-green-600 text-[10px]"></i>
+                                            <span className="px-2 py-0.5 rounded bg-white border border-green-200 text-green-700 font-semibold">
+                                              {metadata?.new_status_display || metadata?.new_status || 'Unknown'}
                                             </span>
                                           </div>
-                                        )}
-                                      </div>
-                                    )}
-
-                                    {/* Status change details */}
-                                    {activity.activity_type === 'disposition_change' && (
-                                      <div className="bg-green-50 rounded-lg p-3 border border-green-100 mt-3">
-                                        <div className="flex items-center gap-2 text-xs">
-                                          <span className="text-slate-500">From:</span>
-                                          <span className="px-2 py-0.5 rounded bg-white border border-green-200 text-green-700 font-semibold">
-                                            {metadata?.old_status_display || metadata?.old_status || 'Unknown'}
-                                          </span>
-                                          <i className="fa-solid fa-arrow-right text-green-600 text-[10px]"></i>
-                                          <span className="px-2 py-0.5 rounded bg-white border border-green-200 text-green-700 font-semibold">
-                                            {metadata?.new_status_display || metadata?.new_status || 'Unknown'}
-                                          </span>
                                         </div>
-                                      </div>
-                                    )}
+                                      )}
+                                    </div>
                                   </div>
-                                </div>
-                              );
-                            })}
+                                );
+                              })}
                           </>
                         ) : (
                           <div className="text-center py-12">
@@ -3485,7 +3618,7 @@ export default function DashboardPage() {
                               console.error('Error ending call:', error);
                               // On error, still clear the state
                               setCurrentCall(null);
-                currentCallRef.current = null;
+                              currentCallRef.current = null;
                               setCallStartTime(null);
                               setWebPhoneStatus('Call ended');
                             }
