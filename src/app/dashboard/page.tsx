@@ -212,7 +212,7 @@ function IntelligenceHeatmap({ data }: { data: { hour: number; count: number }[]
             },
             scales: {
               y: { beginAtZero: true, grid: { color: "#F1F5F9" }, ticks: { font: { size: 9 }, color: '#94A3B8' } },
-              x: { grid: { display: false }, ticks: { font: { size: 9, weight: '700' }, color: '#94a3b8' } },
+               x: { grid: { display: false }, ticks: { font: { size: 9, weight: 'bold' }, color: '#94a3b8' } },
             },
           },
         });
@@ -366,7 +366,7 @@ function FunnelAnatomy({ metrics }: { metrics: any }) {
 }
 
 export default function DashboardPage() {
-  const [activeView, setActiveView] = useState<'overview' | 'dialer' | 'contacts'>('overview');
+  const [activeView, setActiveView] = useState<'overview' | 'dialer' | 'contacts' | 'settings'>('overview');
   const [leads, setLeads] = useState<Lead[]>([]);
   const [activeLead, setActiveLead] = useState<Lead | null>(null);
   const [loading, setLoading] = useState(false);
@@ -397,6 +397,10 @@ export default function DashboardPage() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteStatusFilter, setDeleteStatusFilter] = useState<string>('All');
   const [isDeleting, setIsDeleting] = useState(false);
+  const [organizationUsers, setOrganizationUsers] = useState<any[]>([]);
+  const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+  const [newUser, setNewUser] = useState({ email: '', password: '', name: '' });
+  const [isCreatingUser, setIsCreatingUser] = useState(false);
   const [selectedDisposition, setSelectedDisposition] = useState<string>('');
   const [itemsPerPage, setItemsPerPage] = useState(50);
   const [isSubmittingDisposition, setIsSubmittingDisposition] = useState(false);
@@ -571,6 +575,38 @@ export default function DashboardPage() {
       setLeadActivities([]);
     }
   }, [activeLead?.id, fetchLeadActivities]);
+
+  // Fetch organization users
+  const fetchUsers = useCallback(async () => {
+    setIsLoadingUsers(true);
+    try {
+      console.log('Fetching users from /api/users/list...');
+      const response = await fetch('/api/users/list');
+      console.log('Response status:', response.status);
+      const data = await response.json();
+      console.log('Response data:', data);
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to fetch users');
+      }
+
+      setOrganizationUsers(data.users || []);
+      console.log('Users fetched successfully:', data.users?.length || 0);
+    } catch (error: any) {
+      console.error('Error fetching users:', error);
+      alert(error.message || 'Failed to fetch users. Please check console for details.');
+    } finally {
+      setIsLoadingUsers(false);
+    }
+  }, []);
+
+  // Fetch users when settings view is active
+  useEffect(() => {
+    if (activeView === 'settings') {
+      console.log('Settings view active, fetching users...');
+      fetchUsers();
+    }
+  }, [activeView, fetchUsers]);
 
   const [isDownloadingRecordings, setIsDownloadingRecordings] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState('');
@@ -2954,6 +2990,17 @@ export default function DashboardPage() {
               <i className="fa-solid fa-user-group w-5 text-center"></i>
               <span>CRM Contacts</span>
             </button>
+
+            <button
+              onClick={() => {
+                console.log('Settings button clicked, setting activeView to settings');
+                setActiveView('settings');
+              }}
+              className={`nav-link w-full ${activeView === 'settings' ? 'active' : ''}`}
+            >
+              <i className="fa-solid fa-gear w-5 text-center"></i>
+              <span>Settings</span>
+            </button>
           </nav>
           {/* <a href="#" className="flex items-center space-x-3 px-3 py-2 text-slate-400 hover:bg-white/5 hover:text-white rounded-xl transition-all">
             <i className="fa-solid fa-layer-group w-5 text-sm"></i> <span className="font-medium text-sm">Pipelines</span>
@@ -4330,6 +4377,183 @@ export default function DashboardPage() {
             </>
           )
         }
+
+        {/* VIEW: SETTINGS */}
+        {activeView === 'settings' && (
+          <main className="flex-1 p-8 lg:p-12 overflow-y-auto bg-[#F8FAFC]" key="settings-view">
+            <header className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12">
+              <div>
+                <nav className="flex items-center gap-2 mb-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                  <span className="text-indigo-600">Enterprise</span>
+                  <i className="fa-solid fa-chevron-right text-[8px] opacity-30"></i>
+                  <span>Organization Settings</span>
+                </nav>
+                <h1 className="text-4xl font-black tracking-tight text-slate-900 leading-none">
+                  Settings <span className="text-indigo-600 italic">Management</span>
+                </h1>
+              </div>
+            </header>
+
+            <div className="max-w-7xl mx-auto space-y-8">
+              {/* Create New User Section */}
+              <div className="dashboard-card p-8">
+                <h3 className="text-xl font-black text-slate-900 mb-6">Create New User</h3>
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    if (!newUser.email || !newUser.password) {
+                      alert('Please fill in email and password');
+                      return;
+                    }
+
+                    setIsCreatingUser(true);
+                    try {
+                      const response = await fetch('/api/users/create', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(newUser),
+                      });
+
+                      const data = await response.json();
+
+                      if (!response.ok) {
+                        throw new Error(data.error || 'Failed to create user');
+                      }
+
+                      alert('User created successfully!');
+                      setNewUser({ email: '', password: '', name: '' });
+                      // Refresh users list
+                      await fetchUsers();
+                    } catch (error: any) {
+                      console.error('Error creating user:', error);
+                      alert(error.message || 'Failed to create user');
+                    } finally {
+                      setIsCreatingUser(false);
+                    }
+                  }}
+                  className="space-y-6"
+                >
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Name</label>
+                      <input
+                        type="text"
+                        value={newUser.name}
+                        onChange={(e) => setNewUser({ ...newUser, name: e.target.value })}
+                        placeholder="John Doe"
+                        className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Email *</label>
+                      <input
+                        type="email"
+                        value={newUser.email}
+                        onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
+                        placeholder="user@example.com"
+                        required
+                        className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Password *</label>
+                      <input
+                        type="password"
+                        value={newUser.password}
+                        onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
+                        placeholder="••••••••"
+                        required
+                        minLength={6}
+                        className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end">
+                    <button
+                      type="submit"
+                      disabled={isCreatingUser}
+                      className="px-6 py-3 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
+                    >
+                      {isCreatingUser ? (
+                        <>
+                          <i className="fa-solid fa-circle-notch fa-spin"></i>
+                          Creating...
+                        </>
+                      ) : (
+                        <>
+                          <i className="fa-solid fa-user-plus"></i>
+                          Create User
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              {/* Users List Section */}
+              <div className="dashboard-card p-8">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-xl font-black text-slate-900">Organization Users</h3>
+                  <button
+                    onClick={fetchUsers}
+                    disabled={isLoadingUsers}
+                    className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all disabled:opacity-60 flex items-center gap-2"
+                  >
+                    <i className={`fa-solid fa-rotate ${isLoadingUsers ? 'fa-spin' : ''}`}></i>
+                    Refresh
+                  </button>
+                </div>
+
+                {isLoadingUsers ? (
+                  <div className="text-center py-12">
+                    <i className="fa-solid fa-circle-notch fa-spin text-2xl text-slate-400"></i>
+                    <p className="text-sm text-slate-400 mt-3">Loading users...</p>
+                  </div>
+                ) : organizationUsers.length === 0 ? (
+                  <div className="text-center py-12 bg-slate-50 rounded-2xl border border-slate-200">
+                    <i className="fa-solid fa-users text-4xl text-slate-300 mb-3"></i>
+                    <p className="text-sm text-slate-400 mb-2">No users found</p>
+                    <p className="text-xs text-slate-300">Click Refresh to reload users</p>
+                  </div>
+                ) : (
+                  <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+                    <table className="w-full">
+                      <thead className="bg-slate-50 border-b border-slate-200">
+                        <tr>
+                          <th className="px-6 py-4 text-left text-xs font-black text-slate-400 uppercase tracking-widest">Name</th>
+                          <th className="px-6 py-4 text-left text-xs font-black text-slate-400 uppercase tracking-widest">Email</th>
+                          <th className="px-6 py-4 text-left text-xs font-black text-slate-400 uppercase tracking-widest">Created</th>
+                          <th className="px-6 py-4 text-left text-xs font-black text-slate-400 uppercase tracking-widest">Last Sign In</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {organizationUsers.map((user) => (
+                          <tr key={user.id} className="hover:bg-slate-50 transition-colors">
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-sm">
+                                  {user.name ? user.name.charAt(0).toUpperCase() : user.email.charAt(0).toUpperCase()}
+                                </div>
+                                <span className="text-sm font-semibold text-slate-900">{user.name || 'No name'}</span>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 text-sm text-slate-600">{user.email}</td>
+                            <td className="px-6 py-4 text-xs text-slate-400">
+                              {new Date(user.created_at).toLocaleDateString()}
+                            </td>
+                            <td className="px-6 py-4 text-xs text-slate-400">
+                              {user.last_sign_in_at ? new Date(user.last_sign_in_at).toLocaleDateString() : 'Never'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          </main>
+        )}
       </div >
 
       {showImportModal && (
