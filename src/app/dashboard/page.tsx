@@ -1,7 +1,9 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/utils/supabase/client';
+import { getCurrentUserRole, isAdmin } from '@/utils/roles';
 import Papa from 'papaparse';
 import WebPhone from '@/lib/ringcentral-webphone';
 import { SDK } from '@ringcentral/sdk';
@@ -366,7 +368,9 @@ function FunnelAnatomy({ metrics }: { metrics: any }) {
 }
 
 export default function DashboardPage() {
+  const router = useRouter();
   const [activeView, setActiveView] = useState<'overview' | 'dialer' | 'contacts' | 'settings'>('overview');
+  const [userIsAdmin, setUserIsAdmin] = useState(false);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [activeLead, setActiveLead] = useState<Lead | null>(null);
   const [loading, setLoading] = useState(false);
@@ -399,7 +403,7 @@ export default function DashboardPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [organizationUsers, setOrganizationUsers] = useState<any[]>([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
-  const [newUser, setNewUser] = useState({ email: '', password: '', name: '' });
+  const [newUser, setNewUser] = useState({ email: '', password: '', name: '', role: 'user' as 'admin' | 'user' });
   const [isCreatingUser, setIsCreatingUser] = useState(false);
   const [selectedDisposition, setSelectedDisposition] = useState<string>('');
   const [itemsPerPage, setItemsPerPage] = useState(50);
@@ -545,6 +549,91 @@ export default function DashboardPage() {
       }
     }
   }, []);
+
+  // Function to check admin status (can be called manually)
+  const checkAdminStatus = useCallback(async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        console.log('[Admin Check] No user found');
+        setUserIsAdmin(false);
+        return false;
+      }
+
+      console.log('[Admin Check] User ID:', user.id);
+      
+      // Direct query to check role - bypass cache and add detailed error logging
+      const { data: profile, error } = await supabase
+        .from('user_profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+
+      console.log('[Admin Check] Profile query result:', { 
+        profile, 
+        error,
+        errorCode: error?.code,
+        errorMessage: error?.message,
+        errorDetails: error?.details,
+        errorHint: error?.hint
+      });
+
+      if (error) {
+        console.error('[Admin Check] Error fetching profile:', error);
+        console.error('[Admin Check] Error code:', error.code);
+        console.error('[Admin Check] Error message:', error.message);
+        
+        // If it's an RLS error, log it specifically
+        if (error.code === '42501' || error.message?.includes('permission') || error.message?.includes('policy')) {
+          console.error('[Admin Check] RLS POLICY ERROR - User cannot read their own profile!');
+          console.error('[Admin Check] This means the RLS policy "Users can view their own profile" is not working.');
+        }
+        
+        setUserIsAdmin(false);
+        return false;
+      }
+
+      if (!profile) {
+        console.log('[Admin Check] No profile found');
+        setUserIsAdmin(false);
+        return false;
+      }
+
+      const isAdminUser = profile.role === 'admin';
+      console.log('[Admin Check] Role:', profile.role, 'Is Admin:', isAdminUser);
+      setUserIsAdmin(isAdminUser);
+      return isAdminUser;
+    } catch (error) {
+      console.error('[Admin Check] Error:', error);
+      setUserIsAdmin(false);
+      return false;
+    }
+  }, []);
+
+  // Check if user is admin - with retry logic and window focus listener
+  useEffect(() => {
+    // Check immediately
+    checkAdminStatus();
+
+    // Check after a short delay
+    const timeoutId1 = setTimeout(checkAdminStatus, 1000);
+    
+    // Check again after 3 seconds
+    const timeoutId2 = setTimeout(checkAdminStatus, 3000);
+
+    // Check when window regains focus (user switches back to tab)
+    const handleFocus = () => {
+      console.log('[Admin Check] Window focused, rechecking admin status');
+      checkAdminStatus();
+    };
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      clearTimeout(timeoutId1);
+      clearTimeout(timeoutId2);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [checkAdminStatus]);
 
   useEffect(() => {
     if (activeView === 'contacts') {
@@ -1785,8 +1874,19 @@ export default function DashboardPage() {
   // Fetch Overview Metrics
   const fetchDashboardMetrics = useCallback(async () => {
     try {
-      // 1. Fetch leads for status distribution and growth
-      const { data: leads, error } = await supabase.from("leads").select("status, created_at");
+      const userRole = await getCurrentUserRole();
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      // Build query based on role
+      let leadsQuery = supabase.from("leads").select("id, status, created_at, user_id");
+      
+      // If user (not admin), filter by their user_id
+      if (userRole === 'user' && user) {
+        leadsQuery = leadsQuery.eq('user_id', user.id);
+      }
+      // Admin sees all leads (no filter)
+
+      const { data: leads, error } = await leadsQuery;
       if (error) throw error;
 
       const total = leads.length;
@@ -1822,9 +1922,23 @@ export default function DashboardPage() {
         : todayLeads.length > 0 ? 100 : 0;
 
       // 2. Fetch activities for behavioral analytics
-      const { data: activities, error: activityError } = await supabase
+      let activitiesQuery = supabase
         .from("lead_activities")
-        .select("created_at, activity_type, metadata");
+        .select("created_at, activity_type, metadata, lead_id");
+      
+      // If user (not admin), filter activities by their leads
+      if (userRole === 'user' && user && leads) {
+        const userLeadIds = leads.map(l => l.id);
+        if (userLeadIds.length > 0) {
+          activitiesQuery = activitiesQuery.in('lead_id', userLeadIds);
+        } else {
+          // No leads, so no activities
+          activitiesQuery = activitiesQuery.eq('lead_id', '00000000-0000-0000-0000-000000000000'); // Non-existent ID
+        }
+      }
+      // Admin sees all activities (no filter)
+
+      const { data: activities, error: activityError } = await activitiesQuery;
 
       let heatmap = Array.from({ length: 24 }, (_, i) => ({ hour: i, count: 0 }));
       let callsToday = 0;
@@ -1900,6 +2014,19 @@ export default function DashboardPage() {
         return;
       }
 
+      // Get user's email/name for display in timeline
+      let userName = user.email || 'Unknown User';
+      try {
+        // Try to get user metadata (name if available)
+        if (user.user_metadata?.name) {
+          userName = user.user_metadata.name;
+        } else if (user.user_metadata?.full_name) {
+          userName = user.user_metadata.full_name;
+        }
+      } catch (e) {
+        console.warn('Could not get user name, using email');
+      }
+
       // Verify the lead exists and belongs to the user (required for RLS policy)
       const { data: leadData, error: leadError } = await supabase
         .from('leads')
@@ -1912,22 +2039,9 @@ export default function DashboardPage() {
         return;
       }
 
-      // If lead doesn't have a user_id, set it to current user (for RLS policy)
-      if (!leadData.user_id) {
-        console.log('Lead has no user_id, setting to current user...');
-        const { error: updateError } = await supabase
-          .from('leads')
-          .update({ user_id: user.id })
-          .eq('id', leadId);
-
-        if (updateError) {
-          console.error('Failed to set user_id on lead:', updateError);
-          return;
-        }
-      } else if (leadData.user_id !== user.id) {
-        console.error('Lead does not belong to current user. Lead user_id:', leadData.user_id, 'Current user:', user.id);
-        return;
-      }
+      // Note: All users can now create activities for all leads (per updated RLS policies)
+      // We still check if lead exists, but don't restrict by user_id
+      // The user's name will be stored in metadata so all users can see who made the change
 
       // Map activity type to the old 'type' column format
       // Old schema uses: 'CALL', 'EMAIL', 'SMS', 'NOTE', 'STATUS_CHANGE'
@@ -1940,12 +2054,20 @@ export default function DashboardPage() {
       };
 
       // Save activity with both activity_type and type columns (type is required for backward compatibility)
+      // Include user information in metadata for display in timeline
+      const activityMetadata = {
+        ...(metadata || {}),
+        user_id: user.id,
+        user_name: userName,
+        user_email: user.email,
+      };
+
       const activityData: any = {
         lead_id: leadId,
         activity_type: activityType,
         type: typeMapping[activityType.toLowerCase()] || activityType.toUpperCase(), // Old column requires uppercase and NOT NULL
         description,
-        metadata: metadata || {},
+        metadata: activityMetadata,
         created_by: user.id,
       };
 
@@ -2145,6 +2267,72 @@ export default function DashboardPage() {
     }
   };
 
+  const handleSubmitToIRSLogics = async () => {
+    if (!activeLead) {
+      alert('Please select a lead first.');
+      return;
+    }
+
+    setIsSubmittingDisposition(true);
+    try {
+      console.log('[IRS Logics] Submitting lead to IRS Logics:', activeLead.id);
+      
+      const response = await fetch('/api/irs-logics', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          first_name: activeLead.first_name,
+          last_name: activeLead.last_name,
+          middle_name: activeLead.middle_name,
+          email: activeLead.email,
+          phone: activeLead.phone,
+          address_line1: activeLead.address_line1,
+          address_line2: activeLead.address_line2,
+          city: activeLead.city,
+          state: activeLead.state,
+          postal_code: activeLead.postal_code,
+          date_of_birth: activeLead.date_of_birth,
+          lead_age: activeLead.lead_age,
+          source: activeLead.source,
+          status: activeLead.status,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Failed to submit to IRS Logics');
+      }
+
+      console.log('[IRS Logics] Successfully submitted:', result);
+      
+      // Save activity for IRS Logics submission
+      await saveActivity(
+        activeLead.id,
+        'irs_logics_submission',
+        'Lead submitted to IRS Logics',
+        {
+          irs_logics_response: result.data,
+        }
+      );
+
+      // Also update the disposition if "Qualified" is selected
+      if (selectedDisposition === 'Qualified') {
+        await handleSubmitDisposition('Qualified', true);
+      }
+
+      // Show success message
+      alert('Lead successfully submitted to IRS Logics!');
+    } catch (error: any) {
+      console.error('[IRS Logics] Error submitting to IRS Logics:', error);
+      alert(`Failed to submit to IRS Logics: ${error.message || 'Unknown error'}`);
+    } finally {
+      setIsSubmittingDisposition(false);
+    }
+  };
+
   const handleSubmitDisposition = async (overrideDisposition?: string, fromIRSLogicsButton: boolean = false) => {
     if (!activeLead) return;
 
@@ -2286,6 +2474,62 @@ export default function DashboardPage() {
 
         // Refresh activities to show the new disposition change
         await fetchLeadActivities(activeLead.id);
+      }
+
+      // If this is from the IRS Logics button, submit to IRS Logics API FIRST
+      if (fromIRSLogicsButton && activeLead) {
+        try {
+          console.log('[IRS Logics] Submitting lead to IRS Logics:', activeLead.id);
+          
+          const response = await fetch('/api/irs-logics', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              first_name: activeLead.first_name,
+              last_name: activeLead.last_name,
+              middle_name: activeLead.middle_name,
+              email: activeLead.email,
+              phone: activeLead.phone,
+              address_line1: activeLead.address_line1,
+              address_line2: activeLead.address_line2,
+              city: activeLead.city,
+              state: activeLead.state,
+              postal_code: activeLead.postal_code,
+              date_of_birth: activeLead.date_of_birth,
+              lead_age: activeLead.lead_age,
+              source: activeLead.source,
+              status: activeLead.status,
+            }),
+          });
+
+          const result = await response.json();
+
+          if (!response.ok || !result.success) {
+            throw new Error(result.error || 'Failed to submit to IRS Logics');
+          }
+
+          console.log('[IRS Logics] Successfully submitted:', result);
+          
+          // Save activity for IRS Logics submission
+          await saveActivity(
+            activeLead.id,
+            'irs_logics_submission',
+            'Lead submitted to IRS Logics',
+            {
+              irs_logics_response: result.data,
+            }
+          );
+
+          // Show success message
+          alert('Lead successfully submitted to IRS Logics!');
+        } catch (error: any) {
+          console.error('[IRS Logics] Error submitting to IRS Logics:', error);
+          alert(`Failed to submit to IRS Logics: ${error.message || 'Unknown error'}`);
+          setIsSubmittingDisposition(false);
+          return; // Stop here if IRS Logics fails
+        }
       }
 
       // If power dialing is active, end the call and move to next lead
@@ -2505,7 +2749,13 @@ export default function DashboardPage() {
           setCallStartTime(null);
         }
       } else {
-        alert('Disposition saved successfully!');
+        // For individual leads: only show success alert if NOT Qualified or if from IRSLogics button
+        // If Qualified was just selected, don't show alert yet - wait for IRSLogics button
+        const isQualifiedStatus = statusToSave === 'Qualified' || statusToSave === 'Qualified Lead';
+        if (!isQualifiedStatus || fromIRSLogicsButton) {
+          alert('Disposition saved successfully!');
+        }
+        // If Qualified and not from IRSLogics button, don't show alert - IRSLogics button will handle it
       }
     } catch (err) {
       console.error('Failed to update disposition:', err);
@@ -3001,6 +3251,7 @@ export default function DashboardPage() {
               <i className="fa-solid fa-gear w-5 text-center"></i>
               <span>Settings</span>
             </button>
+
           </nav>
           {/* <a href="#" className="flex items-center space-x-3 px-3 py-2 text-slate-400 hover:bg-white/5 hover:text-white rounded-xl transition-all">
             <i className="fa-solid fa-layer-group w-5 text-sm"></i> <span className="font-medium text-sm">Pipelines</span>
@@ -3133,6 +3384,25 @@ export default function DashboardPage() {
               </div>
             );
           })()}
+
+          {/* Logout Button - Bottom of Sidebar */}
+          <div className="mt-auto p-3 border-t border-white/10">
+            <button
+              onClick={async () => {
+                try {
+                  await supabase.auth.signOut();
+                  router.push('/login');
+                } catch (error) {
+                  console.error('Error signing out:', error);
+                  alert('Failed to sign out. Please try again.');
+                }
+              }}
+              className="nav-link w-full text-red-400 hover:text-red-300 hover:bg-red-500/10 border border-red-500/20"
+            >
+              <i className="fa-solid fa-right-from-bracket w-5 text-center"></i>
+              <span>Logout</span>
+            </button>
+          </div>
         </aside>
 
         {/* VIEW: OVERVIEW */}
@@ -3485,18 +3755,29 @@ export default function DashboardPage() {
 
                                     {/* Activity content */}
                                     <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-                                      <div className="flex justify-between items-center mb-3">
-                                        <span className="text-sm font-bold text-slate-900">
-                                          {activity.activity_type === 'call'
-                                            ? metadata?.call_result === 'rejected'
-                                              ? 'Call Rejected'
-                                              : metadata?.call_result === 'failed'
-                                                ? 'Call Failed'
-                                                : 'Call Ended'
-                                            : activity.activity_type === 'disposition_change'
-                                              ? 'Status Changed'
-                                              : activity.description}
-                                        </span>
+                                      <div className="flex justify-between items-start mb-3">
+                                        <div className="flex-1">
+                                          <span className="text-sm font-bold text-slate-900">
+                                            {activity.activity_type === 'call'
+                                              ? metadata?.call_result === 'rejected'
+                                                ? 'Call Rejected'
+                                                : metadata?.call_result === 'failed'
+                                                  ? 'Call Failed'
+                                                  : 'Call Ended'
+                                              : activity.activity_type === 'disposition_change'
+                                                ? 'Status Changed'
+                                                : activity.description}
+                                          </span>
+                                          {/* Show user name for status changes */}
+                                          {activity.activity_type === 'disposition_change' && metadata?.user_name && (
+                                            <div className="flex items-center gap-1.5 mt-1">
+                                              <i className="fa-solid fa-user text-[10px] text-slate-400"></i>
+                                              <span className="text-xs text-slate-500 font-medium">
+                                                by {metadata.user_name}
+                                              </span>
+                                            </div>
+                                          )}
+                                        </div>
                                         <span className="text-[10px] font-medium text-slate-400">{timeAgo}</span>
                                       </div>
 
@@ -3711,12 +3992,19 @@ export default function DashboardPage() {
                   <div className="grid grid-cols-2 gap-2 mb-8">
                     {DISPOSITION_OPTIONS.map((option) => {
                       const isActive = selectedDisposition === option;
+                      const isQualified = option === 'Qualified';
                       return (
                         <button
                           key={option}
                           onClick={async () => {
                             setSelectedDisposition(option);
                             if (isPowerDialing && currentCall && activeLead) {
+                              // In power dialing, auto-submit all dispositions
+                              await handleSubmitDisposition(option);
+                            } else if (!isPowerDialing && activeLead) {
+                              // For individual leads: always save disposition
+                              // If Qualified, save but don't show success alert yet (wait for IRSLogics button)
+                              // If not Qualified, save and show success alert immediately
                               await handleSubmitDisposition(option);
                             }
                           }}
@@ -3766,11 +4054,11 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                {/* Final Submission - Show for Qualified leads (even during power dialing) */}
-                {activeLead && (activeLead.status === 'Qualified' || activeLead.status === 'Qualified Lead') && (
+                {/* Final Submission - Show only when "Qualified" is selected as disposition */}
+                {activeLead && selectedDisposition === 'Qualified' && (
                   <div className="p-6 border-t border-slate-100 bg-white">
                     <button
-                      onClick={() => handleSubmitDisposition(undefined, true)}
+                      onClick={handleSubmitToIRSLogics}
                       disabled={isSubmittingDisposition || !activeLead}
                       className="w-full bg-slate-900 text-white py-3.5 rounded-xl font-bold text-sm shadow-xl hover:bg-slate-800 transition-all flex items-center justify-center gap-3 group disabled:opacity-60 disabled:cursor-not-allowed btn-premium"
                     >
@@ -4395,79 +4683,101 @@ export default function DashboardPage() {
             </header>
 
             <div className="max-w-7xl mx-auto space-y-8">
-              {/* Create New User Section */}
-              <div className="dashboard-card p-8">
-                <h3 className="text-xl font-black text-slate-900 mb-6">Create New User</h3>
-                <form
-                  onSubmit={async (e) => {
-                    e.preventDefault();
-                    if (!newUser.email || !newUser.password) {
-                      alert('Please fill in email and password');
-                      return;
-                    }
-
-                    setIsCreatingUser(true);
-                    try {
-                      const response = await fetch('/api/users/create', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(newUser),
-                      });
-
-                      const data = await response.json();
-
-                      if (!response.ok) {
-                        throw new Error(data.error || 'Failed to create user');
+              {/* Create New User Section - Admin Only */}
+              {userIsAdmin && (
+                <div className="dashboard-card p-8">
+                  <h3 className="text-xl font-black text-slate-900 mb-6">Create New User</h3>
+                  <form
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      if (!newUser.email || !newUser.password) {
+                        alert('Please fill in email and password');
+                        return;
                       }
 
-                      alert('User created successfully!');
-                      setNewUser({ email: '', password: '', name: '' });
-                      // Refresh users list
-                      await fetchUsers();
-                    } catch (error: any) {
-                      console.error('Error creating user:', error);
-                      alert(error.message || 'Failed to create user');
-                    } finally {
-                      setIsCreatingUser(false);
-                    }
-                  }}
-                  className="space-y-6"
-                >
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Name</label>
-                      <input
-                        type="text"
-                        value={newUser.name}
-                        onChange={(e) => setNewUser({ ...newUser, name: e.target.value })}
-                        placeholder="John Doe"
-                        className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                      />
+                      setIsCreatingUser(true);
+                      try {
+                        // Get auth token
+                        const { data: { session } } = await supabase.auth.getSession();
+                        if (!session) {
+                          throw new Error('Not authenticated');
+                        }
+
+                        const response = await fetch('/api/users/create', {
+                          method: 'POST',
+                          headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${session.access_token}`,
+                          },
+                          body: JSON.stringify(newUser),
+                        });
+
+                        const data = await response.json();
+
+                        if (!response.ok) {
+                          throw new Error(data.error || 'Failed to create user');
+                        }
+
+                        alert('User created successfully!');
+                        setNewUser({ email: '', password: '', name: '', role: 'user' });
+                        // Refresh users list
+                        await fetchUsers();
+                      } catch (error: any) {
+                        console.error('Error creating user:', error);
+                        alert(error.message || 'Failed to create user');
+                      } finally {
+                        setIsCreatingUser(false);
+                      }
+                    }}
+                    className="space-y-6"
+                  >
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Name</label>
+                        <input
+                          type="text"
+                          value={newUser.name}
+                          onChange={(e) => setNewUser({ ...newUser, name: e.target.value })}
+                          placeholder="John Doe"
+                          className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Email *</label>
+                        <input
+                          type="email"
+                          value={newUser.email}
+                          onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
+                          placeholder="user@example.com"
+                          required
+                          className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Password *</label>
+                        <input
+                          type="password"
+                          value={newUser.password}
+                          onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
+                          placeholder="••••••••"
+                          required
+                          minLength={6}
+                          className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Role *</label>
+                        <select
+                          value={newUser.role}
+                          onChange={(e) => setNewUser({ ...newUser, role: e.target.value as 'admin' | 'user' })}
+                          className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+                          required
+                        >
+                          <option value="user">User</option>
+                          <option value="admin">Admin</option>
+                        </select>
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Email *</label>
-                      <input
-                        type="email"
-                        value={newUser.email}
-                        onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
-                        placeholder="user@example.com"
-                        required
-                        className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-400 uppercase mb-2">Password *</label>
-                      <input
-                        type="password"
-                        value={newUser.password}
-                        onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
-                        placeholder="••••••••"
-                        required
-                        minLength={6}
-                        className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                      />
-                    </div>
-                  </div>
                   <div className="flex justify-end">
                     <button
                       type="submit"
@@ -4489,6 +4799,7 @@ export default function DashboardPage() {
                   </div>
                 </form>
               </div>
+              )}
 
               {/* Users List Section */}
               <div className="dashboard-card p-8">
