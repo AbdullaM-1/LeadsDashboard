@@ -927,35 +927,37 @@ export default function DashboardPage() {
             setCallStartTime(new Date());
           });
 
-          session.on('terminated', () => {
-            setWebPhoneStatus('Call ended');
+          if (session.on) {
+            session.on('terminated', () => {
+              setWebPhoneStatus('Call ended');
 
-            // Calculate call duration and save activity (always save, even if duration is 0)
-            if (activeLead?.id) {
-              const duration = callStartTime
-                ? Math.floor((new Date().getTime() - callStartTime.getTime()) / 1000)
-                : 0;
+              // Calculate call duration and save activity (always save, even if duration is 0)
+              if (activeLead?.id) {
+                const duration = callStartTime
+                  ? Math.floor((new Date().getTime() - callStartTime.getTime()) / 1000)
+                  : 0;
 
-              console.log('Saving incoming call terminated activity:', {
-                leadId: activeLead.id,
-                duration,
-              });
+                console.log('Saving incoming call terminated activity:', {
+                  leadId: activeLead.id,
+                  duration,
+                });
 
-              saveActivity(
-                activeLead.id,
-                'call',
-                `Incoming call ended${duration > 0 ? ` - Duration: ${formatCallDuration(duration)}` : ''}`,
-                {
-                  duration_seconds: duration,
-                  call_type: 'inbound',
-                }
-              );
-            }
+                saveActivity(
+                  activeLead.id,
+                  'call',
+                  `Incoming call ended${duration > 0 ? ` - Duration: ${formatCallDuration(duration)}` : ''}`,
+                  {
+                    duration_seconds: duration,
+                    call_type: 'inbound',
+                  }
+                );
+              }
 
-            setCallStartTime(null);
-            setCurrentCall(null);
-            currentCallRef.current = null;
-          });
+              setCallStartTime(null);
+              setCurrentCall(null);
+              currentCallRef.current = null;
+            });
+          }
         });
 
         // Listen for registration events
@@ -1083,49 +1085,50 @@ export default function DashboardPage() {
 
       setCurrentCall(session);
 
-      session.on('accepted', () => {
-        console.log('Call accepted');
-        setWebPhoneStatus('Call connected');
-        isDialingRef.current = false;
-        setCallStartTime(new Date());
-      });
+      if (session.on) {
+        session.on('accepted', () => {
+          console.log('Call accepted');
+          setWebPhoneStatus('Call connected');
+          isDialingRef.current = false;
+          setCallStartTime(new Date());
+        });
 
-      session.on('progress', () => {
-        setWebPhoneStatus('Ringing...');
-      });
+        session.on('progress', () => {
+          setWebPhoneStatus('Ringing...');
+        });
 
-      session.on('terminated', () => {
-        console.log('Call terminated');
-        setWebPhoneStatus('Call ended');
-        isDialingRef.current = false;
+        session.on('terminated', () => {
+          console.log('Call terminated');
+          setWebPhoneStatus('Call ended');
+          isDialingRef.current = false;
 
-        // Calculate call duration and save activity (always save, even if duration is 0)
-        if (leadToDial?.id) {
-          const duration = callStartTime
-            ? Math.floor((new Date().getTime() - callStartTime.getTime()) / 1000)
-            : 0;
+          // Calculate call duration and save activity (always save, even if duration is 0)
+          if (leadToDial?.id) {
+            const duration = callStartTime
+              ? Math.floor((new Date().getTime() - callStartTime.getTime()) / 1000)
+              : 0;
 
-          saveActivity(
-            leadToDial.id,
-            'call',
-            `Call ended${duration > 0 ? ` - Duration: ${formatCallDuration(duration)}` : ''}`,
-            {
-              duration_seconds: duration,
-              phone_number: leadToDial.phone,
-              call_type: 'outbound',
-            }
-          );
-        }
+            saveActivity(
+              leadToDial.id,
+              'call',
+              `Call ended${duration > 0 ? ` - Duration: ${formatCallDuration(duration)}` : ''}`,
+              {
+                duration_seconds: duration,
+                phone_number: leadToDial.phone,
+                call_type: 'outbound',
+              }
+            );
+          }
 
-        setCallStartTime(null);
-        setCurrentCall(null);
-        currentCallRef.current = null;
-      });
+          setCallStartTime(null);
+          setCurrentCall(null);
+          currentCallRef.current = null;
+        });
 
-      session.on('rejected', () => {
-        console.log('Call rejected');
-        setWebPhoneStatus('Call rejected');
-        isDialingRef.current = false;
+        session.on('rejected', () => {
+          console.log('Call rejected');
+          setWebPhoneStatus('Call rejected');
+          isDialingRef.current = false;
 
         if (leadToDial?.id) {
           saveActivity(
@@ -1143,30 +1146,31 @@ export default function DashboardPage() {
         setCallStartTime(null);
         setCurrentCall(null);
         currentCallRef.current = null;
-      });
+        });
 
-      session.on('failed', () => {
-        console.log('Call failed');
-        setWebPhoneStatus('Call failed');
-        isDialingRef.current = false;
+        session.on('failed', () => {
+          console.log('Call failed');
+          setWebPhoneStatus('Call failed');
+          isDialingRef.current = false;
 
-        if (leadToDial?.id) {
-          saveActivity(
-            leadToDial.id,
-            'call',
-            'Call failed',
-            {
-              phone_number: leadToDial.phone,
-              call_type: 'outbound',
-              call_result: 'failed',
-            }
-          );
-        }
+          if (leadToDial?.id) {
+            saveActivity(
+              leadToDial.id,
+              'call',
+              'Call failed',
+              {
+                phone_number: leadToDial.phone,
+                call_type: 'outbound',
+                call_result: 'failed',
+              }
+            );
+          }
 
-        setCallStartTime(null);
-        setCurrentCall(null);
-        currentCallRef.current = null;
-      });
+          setCallStartTime(null);
+          setCurrentCall(null);
+          currentCallRef.current = null;
+        });
+      }
 
     } catch (error: any) {
       console.error('Failed to dial:', error);
@@ -1411,16 +1415,17 @@ export default function DashboardPage() {
 
             setCurrentCall(session);
 
-            session.on('accepted', () => {
-              setWebPhoneStatus('Call connected');
-              setCallStartTime(new Date());
-            });
+            if (session.on) {
+              session.on('accepted', () => {
+                setWebPhoneStatus('Call connected');
+                setCallStartTime(new Date());
+              });
 
-            session.on('progress', () => {
-              setWebPhoneStatus('Ringing...');
-            });
+              session.on('progress', () => {
+                setWebPhoneStatus('Ringing...');
+              });
 
-            session.on('terminated', () => {
+              session.on('terminated', () => {
               setWebPhoneStatus('Call ended');
 
               // Calculate call duration and save activity (always save, even if duration is 0)
@@ -1449,33 +1454,33 @@ export default function DashboardPage() {
               setCallStartTime(null);
               setCurrentCall(null);
               currentCallRef.current = null;
-            });
+              });
 
-            session.on('rejected', () => {
-              setWebPhoneStatus('Call rejected');
+              session.on('rejected', () => {
+                setWebPhoneStatus('Call rejected');
 
-              // Save activity for rejected call
-              if (firstLead?.id && callStartTime) {
-                const duration = Math.floor((new Date().getTime() - callStartTime.getTime()) / 1000);
-                saveActivity(
-                  firstLead.id,
-                  'call',
-                  `Call rejected - Duration: ${formatCallDuration(duration)}`,
-                  {
-                    duration_seconds: duration,
-                    phone_number: firstLead.phone,
-                    call_type: 'outbound',
-                    call_result: 'rejected',
-                  }
-                );
-              }
+                // Save activity for rejected call
+                if (firstLead?.id && callStartTime) {
+                  const duration = Math.floor((new Date().getTime() - callStartTime.getTime()) / 1000);
+                  saveActivity(
+                    firstLead.id,
+                    'call',
+                    `Call rejected - Duration: ${formatCallDuration(duration)}`,
+                    {
+                      duration_seconds: duration,
+                      phone_number: firstLead.phone,
+                      call_type: 'outbound',
+                      call_result: 'rejected',
+                    }
+                  );
+                }
 
-              setCallStartTime(null);
-              setCurrentCall(null);
-              currentCallRef.current = null;
-            });
+                setCallStartTime(null);
+                setCurrentCall(null);
+                currentCallRef.current = null;
+              });
 
-            session.on('failed', () => {
+              session.on('failed', () => {
               setWebPhoneStatus('Call failed');
 
               // Save activity for failed call
@@ -1498,6 +1503,7 @@ export default function DashboardPage() {
               setCurrentCall(null);
               currentCallRef.current = null;
             });
+            }
           } catch (error: any) {
             console.error('Failed to dial:', error);
             setWebPhoneStatus(`Dial failed: ${error.message || 'Unknown error'}`);
@@ -1589,16 +1595,17 @@ export default function DashboardPage() {
                 setCurrentCall(session);
                 currentCallRef.current = session;
 
-                session.on('accepted', () => {
-                  setWebPhoneStatus('Call connected');
-                  setCallStartTime(new Date());
-                });
+                if (session.on) {
+                  session.on('accepted', () => {
+                    setWebPhoneStatus('Call connected');
+                    setCallStartTime(new Date());
+                  });
 
-                session.on('progress', () => {
-                  setWebPhoneStatus('Ringing...');
-                });
+                  session.on('progress', () => {
+                    setWebPhoneStatus('Ringing...');
+                  });
 
-                session.on('terminated', () => {
+                  session.on('terminated', () => {
                   setWebPhoneStatus('Call ended');
 
                   // Calculate call duration and save activity (always save, even if duration is 0)
@@ -1627,33 +1634,33 @@ export default function DashboardPage() {
                   setCallStartTime(null);
                   setCurrentCall(null);
                   currentCallRef.current = null;
-                });
+                  });
 
-                session.on('rejected', () => {
-                  setWebPhoneStatus('Call rejected');
+                  session.on('rejected', () => {
+                    setWebPhoneStatus('Call rejected');
 
-                  // Save activity for rejected call
-                  if (nextLead?.id && callStartTime) {
-                    const duration = Math.floor((new Date().getTime() - callStartTime.getTime()) / 1000);
-                    saveActivity(
-                      nextLead.id,
-                      'call',
-                      `Call rejected - Duration: ${formatCallDuration(duration)}`,
-                      {
-                        duration_seconds: duration,
-                        phone_number: nextLead.phone,
-                        call_type: 'outbound',
-                        call_result: 'rejected',
-                      }
-                    );
-                  }
+                    // Save activity for rejected call
+                    if (nextLead?.id && callStartTime) {
+                      const duration = Math.floor((new Date().getTime() - callStartTime.getTime()) / 1000);
+                      saveActivity(
+                        nextLead.id,
+                        'call',
+                        `Call rejected - Duration: ${formatCallDuration(duration)}`,
+                        {
+                          duration_seconds: duration,
+                          phone_number: nextLead.phone,
+                          call_type: 'outbound',
+                          call_result: 'rejected',
+                        }
+                      );
+                    }
 
-                  setCallStartTime(null);
-                  setCurrentCall(null);
-                  currentCallRef.current = null;
-                });
+                    setCallStartTime(null);
+                    setCurrentCall(null);
+                    currentCallRef.current = null;
+                  });
 
-                session.on('failed', () => {
+                  session.on('failed', () => {
                   setWebPhoneStatus('Call failed');
 
                   // Save activity for failed call
@@ -1675,7 +1682,8 @@ export default function DashboardPage() {
                   setCallStartTime(null);
                   setCurrentCall(null);
                   currentCallRef.current = null;
-                });
+                  });
+                }
               } catch (error: any) {
                 console.error('useEffect: Failed to dial:', error);
                 setWebPhoneStatus(`Dial failed: ${error.message || 'Unknown error'}`);
@@ -2623,16 +2631,17 @@ export default function DashboardPage() {
                   setCurrentCall(session);
                   currentCallRef.current = session;
 
-                  session.on('accepted', () => {
-                    setWebPhoneStatus('Call connected');
-                    setCallStartTime(new Date());
-                  });
+                  if (session.on) {
+                    session.on('accepted', () => {
+                      setWebPhoneStatus('Call connected');
+                      setCallStartTime(new Date());
+                    });
 
-                  session.on('progress', () => {
-                    setWebPhoneStatus('Ringing...');
-                  });
+                    session.on('progress', () => {
+                      setWebPhoneStatus('Ringing...');
+                    });
 
-                  session.on('terminated', () => {
+                    session.on('terminated', () => {
                     setWebPhoneStatus('Call ended');
 
                     // Calculate call duration and save activity (always save, even if duration is 0)
@@ -2656,35 +2665,35 @@ export default function DashboardPage() {
                     setCallStartTime(null);
                     setCurrentCall(null);
                     currentCallRef.current = null;
-                  });
+                    });
 
-                  session.on('rejected', () => {
-                    setWebPhoneStatus('Call rejected');
+                    session.on('rejected', () => {
+                      setWebPhoneStatus('Call rejected');
 
-                    if (nextLead?.id) {
-                      const duration = callStartTime
-                        ? Math.floor((new Date().getTime() - callStartTime.getTime()) / 1000)
-                        : 0;
+                      if (nextLead?.id) {
+                        const duration = callStartTime
+                          ? Math.floor((new Date().getTime() - callStartTime.getTime()) / 1000)
+                          : 0;
 
-                      saveActivity(
-                        nextLead.id,
-                        'call',
-                        `Call rejected${duration > 0 ? ` - Duration: ${formatCallDuration(duration)}` : ''}`,
-                        {
-                          duration_seconds: duration,
-                          phone_number: nextLead.phone,
-                          call_type: 'outbound',
-                          call_result: 'rejected',
-                        }
-                      );
-                    }
+                        saveActivity(
+                          nextLead.id,
+                          'call',
+                          `Call rejected${duration > 0 ? ` - Duration: ${formatCallDuration(duration)}` : ''}`,
+                          {
+                            duration_seconds: duration,
+                            phone_number: nextLead.phone,
+                            call_type: 'outbound',
+                            call_result: 'rejected',
+                          }
+                        );
+                      }
 
-                    setCallStartTime(null);
-                    setCurrentCall(null);
-                    currentCallRef.current = null;
-                  });
+                      setCallStartTime(null);
+                      setCurrentCall(null);
+                      currentCallRef.current = null;
+                    });
 
-                  session.on('failed', () => {
+                    session.on('failed', () => {
                     setWebPhoneStatus('Call failed');
 
                     if (nextLead?.id) {
@@ -2708,7 +2717,8 @@ export default function DashboardPage() {
                     setCallStartTime(null);
                     setCurrentCall(null);
                     currentCallRef.current = null;
-                  });
+                    });
+                  }
                 } catch (error: any) {
                   console.error('handleSubmitDisposition: Failed to dial next lead:', error);
                   setWebPhoneStatus(`Dial failed: ${error.message || 'Unknown error'}`);

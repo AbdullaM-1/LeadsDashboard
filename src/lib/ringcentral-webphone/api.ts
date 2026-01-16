@@ -1,21 +1,26 @@
 import WebPhone from './index';
-export { DomAudio, AudioHelper, AudioHelperOptions } from './audioHelper';
-export { WebPhoneEvents } from './events';
-export { SipInfo, WebPhoneOptions, WebPhoneRegistrationData } from './index';
-export { WebPhone };
-export { InboundRtpReport, RTPReport, OutboundRtpReport, RttReport } from './rtpReport';
-export {
+
+// Export types separately (required for isolatedModules)
+export type { DomAudio, AudioHelperOptions } from './audioHelper';
+export type { WebPhoneEvents } from './events';
+export type { SipInfo, WebPhoneOptions, WebPhoneRegistrationData } from './index';
+export type { InboundRtpReport, RTPReport, OutboundRtpReport, RttReport } from './rtpReport';
+export type {
   RCHeaders,
   WebPhoneInvitation,
   WebPhoneSession,
   ReplyOptions,
   WebPhoneInviter,
-  CommonSession,
 } from './session';
-export {
+export type {
   WebPhoneSessionDescriptionHandlerConfiguration,
   WebPhoneSessionDescriptionHandlerFactoryOptions,
-  SessionDescriptionHandler,
 } from './sessionDescriptionHandler';
-export { WebPhoneTransport } from './transport';
-export { ActiveCallInfo, WebPhoneUserAgent } from './userAgent';
+export type { WebPhoneTransport } from './transport';
+export type { ActiveCallInfo, WebPhoneUserAgent } from './userAgent';
+
+// Export values (classes, functions, constants)
+export { AudioHelper } from './audioHelper';
+export { WebPhone };
+export { CommonSession } from './session';
+export { SessionDescriptionHandler } from './sessionDescriptionHandler';

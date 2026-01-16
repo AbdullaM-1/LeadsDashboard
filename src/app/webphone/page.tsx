@@ -104,9 +104,11 @@ export default function WebPhonePage() {
             setStatus('Call connected');
           });
           
-          session.on('terminated', () => {
-             setStatus('Call terminated');
-          });
+          if (session.on) {
+            session.on('terminated', () => {
+              setStatus('Call terminated');
+            });
+          }
         });
         
         // Listen for registration events
@@ -157,15 +159,17 @@ export default function WebPhonePage() {
       fromNumber: '+1234567890', // Replace with your verified number
     });
     
-    session.on('accepted', () => {
-      console.log('Call connected');
-      setStatus('Call connected');
-    });
-    
-    session.on('terminated', () => {
-      console.log('Call terminated');
-      setStatus('Call terminated');
-    });
+    if (session.on) {
+      session.on('accepted', () => {
+        console.log('Call connected');
+        setStatus('Call connected');
+      });
+      
+      session.on('terminated', () => {
+        console.log('Call terminated');
+        setStatus('Call terminated');
+      });
+    }
   };
 
   return (

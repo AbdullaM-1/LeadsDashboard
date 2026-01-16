@@ -137,11 +137,11 @@ export class CommonSession {
   /** Mute the call */
   public mute?: typeof mute;
   /** Remove event listener */
-  public off: typeof EventEmitter.prototype.off;
+  public off?: typeof EventEmitter.prototype.off;
   /** Add event listener. Same as addListener */
-  public on: typeof EventEmitter.prototype.on;
+  public on?: typeof EventEmitter.prototype.on;
   /** Add once event listener. Same as addListener */
-  public once: typeof EventEmitter.prototype.once;
+  public once?: typeof EventEmitter.prototype.once;
   /** Returns if the call is on hold locally or not */
   public onLocalHold?: typeof onLocalHold;
   /** RingCentral park implementation */
@@ -662,7 +662,9 @@ async function unhold(this: WebPhoneSession): Promise<void> {
   } catch (e) {
     throw new Error('Unhold could not be completed');
   }
-  this.addTrack(this.media.remote as HTMLVideoElement, this.media.local as HTMLVideoElement);
+  if (this.addTrack && this.media?.remote && this.media?.local) {
+    this.addTrack(this.media.remote as HTMLVideoElement, this.media.local as HTMLVideoElement);
+  }
 }
 
 // eslint-disable-next-line max-params

@@ -465,7 +465,7 @@ export class SessionDescriptionHandler implements SessionDescriptionHandlerDefin
       } catch (error) {
         console.error(
           `Error while setting encodings parameters for ${sender.track!.kind} Track ${sender.track!.id}: ${
-            error.message || error.name
+            error instanceof Error ? error.message : error instanceof Object && 'name' in error ? String(error.name) : String(error)
           }`,
         );
       }
