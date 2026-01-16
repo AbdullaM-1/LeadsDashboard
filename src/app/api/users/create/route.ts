@@ -88,8 +88,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || 'https://yiicekljygipqdcqxouu.supabase.co';
-
+    // Reuse supabaseUrl from above (already declared on line 40)
     // Create admin client with service role key
     const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
       auth: {
