@@ -1,5 +1,13 @@
-import { Levels as LogLevels } from 'sip.js/lib/core/log/levels';
 import type { LogLevel } from 'sip.js/lib/api/user-agent-options';
+
+// LogLevels mapping - maps string log levels to sip.js LogLevel enum values
+// This is a fallback since the sip.js Levels import path may not be available
+const LogLevels: Record<string, LogLevel> = {
+  debug: 'debug' as LogLevel,
+  log: 'log' as LogLevel,
+  warn: 'warn' as LogLevel,
+  error: 'error' as LogLevel,
+};
 import type {
   SessionDescriptionHandlerModifier,
   UserAgentOptions,
@@ -413,7 +421,7 @@ export default class WebPhone {
       reconnectionAttempts: 0,
       authorizationUsername: this.sipInfo.authorizationId,
       authorizationPassword: this.sipInfo.password,
-      logLevel: (LogLevels[options.logLevel!] as unknown as LogLevel) || defaultLogLevel,
+      logLevel: (options.logLevel && LogLevels[options.logLevel]) || (defaultLogLevel as LogLevel),
       logBuiltinEnabled: options.builtinEnabled,
       logConnector: options.connector || undefined,
       userAgentString,
