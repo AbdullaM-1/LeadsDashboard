@@ -4865,11 +4865,11 @@ export default function DashboardPage() {
             </div>
           </main>
         )}
-      </div >
+      </div>
 
       {showImportModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
-          <div className="glass-modal rounded-3xl w-full max-w-2xl p-8 relative animate-float">
+        <div className="modal-overlay">
+          <div className="glass-modal animate-float">
             <button
               onClick={resetImportModal}
               className="absolute top-6 right-6 text-slate-400 hover:text-slate-700 transition-colors"
@@ -4968,8 +4968,8 @@ export default function DashboardPage() {
 
       {
         showDeleteModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
-            <div className="glass-modal rounded-3xl w-full max-w-lg p-8 relative animate-float">
+          <div className="modal-overlay">
+            <div className="glass-modal glass-modal-sm animate-float">
               <button
                 onClick={() => setShowDeleteModal(false)}
                 className="absolute top-6 right-6 text-slate-400 hover:text-slate-700 transition-colors"
@@ -5038,8 +5038,8 @@ export default function DashboardPage() {
 
       {
         showLeadModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
-            <div className="glass-modal rounded-3xl w-full max-w-3xl p-8 relative animate-float">
+          <div className="modal-overlay">
+            <div className="glass-modal glass-modal-lg animate-float">
               <button
                 onClick={() => setShowLeadModal(false)}
                 className="absolute top-6 right-6 text-slate-400 hover:text-slate-700 transition-colors"

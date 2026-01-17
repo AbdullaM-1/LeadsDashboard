@@ -490,7 +490,6 @@ export default function Home() {
     <div className="antialiased text-slate-900 min-h-screen flex bg-[#FBFBFC]" style={{ fontFamily: "var(--font-geist-sans), 'Inter', sans-serif" }}>
       <div className="grain"></div>
 
-
       <main className="flex-1 p-8 lg:p-14 overflow-y-auto">
         <Header isUploading={isUploading} setIsUploading={setIsUploading} />
 

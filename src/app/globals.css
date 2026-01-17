@@ -50,6 +50,98 @@ body {
   border-color: rgba(99, 102, 241, 0.3);
 }
 
+/* Modal overlay - full-screen backdrop (no Tailwind dependency) */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.6);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+
+/* Modal / Popup glass surface */
+.glass-modal {
+  background: rgba(255, 255, 255, 0.98);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9) inset, 0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 25px 50px -12px rgba(0, 0, 0, 0.15);
+  border-radius: 1.5rem;
+  padding: 2rem;
+  width: 100%;
+  max-width: 42rem;
+  box-sizing: border-box;
+  position: relative;
+}
+
+.glass-modal.glass-modal-sm { max-width: 32rem; }
+.glass-modal.glass-modal-lg { max-width: 48rem; }
+
+/* Modal entrance animation */
+@keyframes modal-float-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-float {
+  animation: modal-float-in 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Form label in modals */
+.glass-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 800;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 8px;
+  line-height: 1.2;
+}
+
+/* Form input in modals */
+.glass-input {
+  display: block;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 0.75rem;
+  transition: all 0.2s ease;
+  color: #0f172a;
+  box-sizing: border-box;
+}
+
+.glass-input::placeholder {
+  color: #94a3b8;
+}
+
+.glass-input:focus {
+  background: #ffffff;
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+  outline: none;
+}
+
+select.glass-input {
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+}
+
 /* Custom Shimmer Effect */
 .shimmer {
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
