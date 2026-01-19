@@ -397,6 +397,8 @@ export default function DashboardPage() {
   const [importError, setImportError] = useState<string | null>(null);
   const [showTagInput, setShowTagInput] = useState(false);
   const [newTagValue, setNewTagValue] = useState('');
+  const [showDuplicateModal, setShowDuplicateModal] = useState(false);
+  const [duplicateLeads, setDuplicateLeads] = useState<any[]>([]);
   const [isTagSaving, setIsTagSaving] = useState(false);
   const [pageCursors, setPageCursors] = useState<Record<number, { created_at: string; id: string } | null>>({});
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -1365,9 +1367,15 @@ export default function DashboardPage() {
       } else {
         // No leads selected - use only the leads currently visible on the page (viewport)
         // This ensures power dialer only dials what the user can see
+        // Note: The leads array is already filtered by statusFilter in fetchLeads,
+        // so we can use it directly without additional filtering
         leadsToDial = leads;
         
         console.log('Power dialer - Using current page leads (viewport only):', leadsToDial.length, 'leads');
+        console.log('Power dialer - Current status filter:', statusFilter, 'View mode:', viewMode);
+        if (leadsToDial.length > 0) {
+          console.log('Power dialer - Sample lead statuses:', leadsToDial.slice(0, 3).map(l => ({ id: l.id, status: l.status, phone: l.phone })));
+        }
       }
 
       // Filter leads with phone numbers
@@ -2316,9 +2324,25 @@ export default function DashboardPage() {
     }
   };
 
+  // Check if the active lead has already been submitted to IRS Logics
+  const hasBeenSubmittedToIRSLogics = useMemo(() => {
+    if (!activeLead || !leadActivities.length) return false;
+    return leadActivities.some(
+      (activity: any) => 
+        activity.activity_type === 'irs_logics_submission' || 
+        activity.type === 'irs_logics_submission' ||
+        (activity.activity_type && activity.activity_type.toLowerCase() === 'irs_logics_submission')
+    );
+  }, [activeLead, leadActivities]);
+
   const handleSubmitToIRSLogics = async () => {
     if (!activeLead) {
       alert('Please select a lead first.');
+      return;
+    }
+
+    if (hasBeenSubmittedToIRSLogics) {
+      alert('This lead has already been submitted to IRS Logics.');
       return;
     }
 
@@ -2384,6 +2408,11 @@ export default function DashboardPage() {
             irs_logics_response: result.data,
           }
         );
+      }
+
+      // Refresh activities to update the hasBeenSubmittedToIRSLogics check
+      if (activeLead?.id) {
+        await fetchLeadActivities(activeLead.id);
       }
 
       // Show success message
@@ -2787,6 +2816,75 @@ export default function DashboardPage() {
     e.preventDefault();
     setIsCreatingLead(true);
     try {
+      // Normalize phone number for comparison
+      const normalizePhone = (phone: string | null | undefined): string => {
+        if (!phone) return '';
+        return phone.replace(/[\s\-\(\)\.]/g, '').trim();
+      };
+
+      const normalizedPhone = normalizePhone(newLead.phone);
+
+      // Check for duplicate if phone number exists
+      if (normalizedPhone) {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          alert('You must be logged in to create leads.');
+          setIsCreatingLead(false);
+          return;
+        }
+
+        // Query for ALL existing leads with the same phone number
+        // Fetch in batches to get all leads (Supabase has a 1000 row limit per query)
+        let allExistingLeads: any[] = [];
+        let page = 0;
+        let hasMore = true;
+        const pageSize = 1000;
+
+        while (hasMore) {
+          const from = page * pageSize;
+          const to = from + pageSize - 1;
+
+          const { data: pageLeads, error: queryError } = await supabase
+            .from('leads')
+            .select('id, phone, first_name, last_name, email')
+            .eq('user_id', user.id)
+            .range(from, to);
+
+          if (queryError) throw queryError;
+
+          if (pageLeads && pageLeads.length > 0) {
+            allExistingLeads = [...allExistingLeads, ...pageLeads];
+            hasMore = pageLeads.length === pageSize;
+            page++;
+          } else {
+            hasMore = false;
+          }
+        }
+
+        // Check if any existing lead has the same normalized phone number
+        const isDuplicate = allExistingLeads.some(lead => {
+          const existingNormalized = normalizePhone(lead.phone);
+          return existingNormalized && existingNormalized === normalizedPhone;
+        });
+
+        if (isDuplicate) {
+          const duplicateLead = allExistingLeads.find(lead => {
+            const existingNormalized = normalizePhone(lead.phone);
+            return existingNormalized && existingNormalized === normalizedPhone;
+          });
+
+          alert(
+            `This lead already exists in your database!\n\n` +
+            `Existing lead: ${duplicateLead?.first_name} ${duplicateLead?.last_name}\n` +
+            `Phone: ${duplicateLead?.phone}\n` +
+            `Email: ${duplicateLead?.email || 'N/A'}\n\n` +
+            `Leads are identified by phone number. If the phone number is different, the lead will be added.`
+          );
+          setIsCreatingLead(false);
+          return;
+        }
+      }
+
       const statusToSave = getPrimaryStatusValue(newLead.status);
       const payload = {
         ...newLead,
@@ -2903,14 +3001,120 @@ export default function DashboardPage() {
             return;
           }
 
-          const { error } = await supabase.from('leads').insert(parsedLeads);
+          // Normalize phone numbers for comparison (remove spaces, dashes, parentheses, etc.)
+          const normalizePhone = (phone: string | null | undefined): string => {
+            if (!phone) return '';
+            return phone.replace(/[\s\-\(\)\.]/g, '').trim();
+          };
 
-          if (error) throw error;
+          // Filter out leads without phone numbers for duplicate check
+          const leadsWithPhone = parsedLeads.filter(lead => lead.phone && normalizePhone(lead.phone));
+          
+          if (leadsWithPhone.length > 0) {
+            // Get all phone numbers from the CSV
+            const csvPhoneNumbers = leadsWithPhone.map(lead => normalizePhone(lead.phone));
+            
+            // Query database for ALL existing leads with these phone numbers
+            // Fetch in batches to get all leads (Supabase has a 1000 row limit per query)
+            let allExistingLeads: any[] = [];
+            let page = 0;
+            let hasMore = true;
+            const pageSize = 1000;
 
-          alert(`Successfully imported ${parsedLeads.length} leads!`);
-          resetPaginationState();
-          await fetchLeads();
-          resetImportModal();
+            while (hasMore) {
+              const from = page * pageSize;
+              const to = from + pageSize - 1;
+
+              const { data: pageLeads, error: queryError } = await supabase
+                .from('leads')
+                .select('id, phone, first_name, last_name, email')
+                .eq('user_id', user.id)
+                .range(from, to);
+
+              if (queryError) throw queryError;
+
+              if (pageLeads && pageLeads.length > 0) {
+                allExistingLeads = [...allExistingLeads, ...pageLeads];
+                hasMore = pageLeads.length === pageSize;
+                page++;
+              } else {
+                hasMore = false;
+              }
+            }
+
+            console.log(`[Duplicate Check] Fetched ${allExistingLeads.length} existing leads from database for comparison`);
+
+            // Normalize existing phone numbers and create a map
+            const existingPhoneMap = new Map<string, any>();
+            allExistingLeads.forEach(lead => {
+              const normalized = normalizePhone(lead.phone);
+              if (normalized) {
+                existingPhoneMap.set(normalized, lead);
+              }
+            });
+
+            // Separate duplicates from new leads
+            const duplicateLeadsList: any[] = [];
+            const newLeads: any[] = [];
+
+            parsedLeads.forEach(lead => {
+              const normalizedPhone = normalizePhone(lead.phone);
+              if (normalizedPhone && existingPhoneMap.has(normalizedPhone)) {
+                // This is a duplicate
+                const existingLead = existingPhoneMap.get(normalizedPhone);
+                duplicateLeadsList.push({
+                  csvLead: {
+                    first_name: lead.first_name,
+                    last_name: lead.last_name,
+                    phone: lead.phone,
+                    email: lead.email,
+                  },
+                  existingLead: existingLead,
+                });
+              } else {
+                // This is a new lead (either no phone or phone doesn't exist)
+                newLeads.push(lead);
+              }
+            });
+
+            // If there are duplicates, show the modal
+            if (duplicateLeadsList.length > 0) {
+              setDuplicateLeads(duplicateLeadsList);
+              setShowDuplicateModal(true);
+            }
+
+            // Only insert non-duplicate leads
+            if (newLeads.length > 0) {
+              const { error } = await supabase.from('leads').insert(newLeads);
+              if (error) throw error;
+            }
+
+            // Show success message with details
+            if (duplicateLeadsList.length > 0 && newLeads.length > 0) {
+              alert(`Successfully imported ${newLeads.length} new leads. ${duplicateLeadsList.length} duplicate lead(s) were skipped (see details in popup).`);
+            } else if (duplicateLeadsList.length > 0 && newLeads.length === 0) {
+              alert(`All ${duplicateLeadsList.length} lead(s) were duplicates. No new leads were imported (see details in popup).`);
+            } else {
+              alert(`Successfully imported ${newLeads.length} leads!`);
+            }
+
+            resetPaginationState();
+            await fetchLeads();
+            
+            // Only close import modal if there are no duplicates, otherwise keep it open to show duplicate modal
+            if (duplicateLeadsList.length === 0) {
+              resetImportModal();
+            }
+          } else {
+            // No phone numbers in CSV, insert all leads
+            const { error } = await supabase.from('leads').insert(parsedLeads);
+            if (error) throw error;
+
+            alert(`Successfully imported ${parsedLeads.length} leads!`);
+            resetPaginationState();
+            await fetchLeads();
+            resetImportModal();
+          }
         } catch (err: any) {
           console.error('Error uploading leads:', err);
           setImportError(err.message || 'Failed to import leads.');
@@ -4075,23 +4279,30 @@ export default function DashboardPage() {
                 {/* Final Submission - Show only when "Qualified" is selected as disposition */}
                 {activeLead && selectedDisposition === 'Qualified' && (
                   <div className="p-6 border-t border-slate-100 bg-white">
-                    <button
-                      onClick={handleSubmitToIRSLogics}
-                      disabled={isSubmittingDisposition || !activeLead}
-                      className="w-full bg-slate-900 text-white py-3.5 rounded-xl font-bold text-sm shadow-xl hover:bg-slate-800 transition-all flex items-center justify-center gap-3 group disabled:opacity-60 disabled:cursor-not-allowed btn-premium"
-                    >
-                      {isSubmittingDisposition ? (
-                        <>
-                          <i className="fa-solid fa-circle-notch fa-spin"></i>
-                          Saving...
-                        </>
-                      ) : (
-                        <>
-                          Submit to IRSLogics
-                          <i className="fa-solid fa-arrow-right text-[10px] group-hover:translate-x-1 transition-transform"></i>
-                        </>
-                      )}
-                    </button>
+                    {hasBeenSubmittedToIRSLogics ? (
+                      <div className="w-full bg-green-50 border border-green-200 text-green-800 py-3.5 rounded-xl font-bold text-sm flex items-center justify-center gap-3">
+                        <i className="fa-solid fa-check-circle"></i>
+                        Already Submitted to IRS Logics
+                      </div>
+                    ) : (
+                      <button
+                        onClick={handleSubmitToIRSLogics}
+                        disabled={isSubmittingDisposition || !activeLead || hasBeenSubmittedToIRSLogics}
+                        className="w-full bg-slate-900 text-white py-3.5 rounded-xl font-bold text-sm shadow-xl hover:bg-slate-800 transition-all flex items-center justify-center gap-3 group disabled:opacity-60 disabled:cursor-not-allowed btn-premium"
+                      >
+                        {isSubmittingDisposition ? (
+                          <>
+                            <i className="fa-solid fa-circle-notch fa-spin"></i>
+                            Saving...
+                          </>
+                        ) : (
+                          <>
+                            Submit to IRSLogics
+                            <i className="fa-solid fa-arrow-right text-[10px] group-hover:translate-x-1 transition-transform"></i>
+                          </>
+                        )}
+                      </button>
+                    )}
                     {/* <div className="flex justify-center mt-3">
                     <button
                       onClick={handleDownloadAllRecordings}
@@ -5009,6 +5220,78 @@ export default function DashboardPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Duplicate Leads Modal */}
+      {showDuplicateModal && (
+        <div className="modal-overlay">
+          <div className="glass-modal glass-modal-lg animate-float">
+            <button
+              onClick={() => {
+                setShowDuplicateModal(false);
+                resetImportModal();
+              }}
+              className="absolute top-6 right-6 text-slate-400 hover:text-slate-700 transition-colors"
+            >
+              <i className="fa-solid fa-xmark text-xl"></i>
+            </button>
+
+            <h3 className="text-2xl font-black text-slate-900 mb-2 tracking-tight">Duplicate Leads Detected</h3>
+            <p className="text-xs font-medium text-slate-500 mb-6 uppercase tracking-widest">
+              The following leads were skipped because they already exist in your database (based on phone number).
+            </p>
+
+            <div className="max-h-[60vh] overflow-y-auto mb-6">
+              <div className="space-y-3">
+                {duplicateLeads.map((duplicate, index) => (
+                  <div
+                    key={index}
+                    className="p-4 rounded-xl border border-amber-200 bg-amber-50/50"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                        <i className="fa-solid fa-exclamation-triangle text-amber-600 text-sm"></i>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-sm font-bold text-slate-900">
+                            {duplicate.csvLead.first_name} {duplicate.csvLead.last_name}
+                          </span>
+                          <span className="text-xs text-slate-500">•</span>
+                          <span className="text-xs font-semibold text-slate-600">
+                            {duplicate.csvLead.phone}
+                          </span>
+                        </div>
+                        {duplicate.csvLead.email && (
+                          <div className="text-xs text-slate-500 mb-2">
+                            Email: {duplicate.csvLead.email}
+                          </div>
+                        )}
+                        <div className="text-xs text-slate-400 italic">
+                          Already exists as: {duplicate.existingLead.first_name} {duplicate.existingLead.last_name}
+                          {duplicate.existingLead.email && ` (${duplicate.existingLead.email})`}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDuplicateModal(false);
+                  resetImportModal();
+                }}
+                className="px-8 py-3 rounded-xl bg-blue-600 text-white text-xs font-black uppercase tracking-[0.2em] shadow-lg shadow-blue-500/20 hover:bg-blue-700 transition-all"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}
