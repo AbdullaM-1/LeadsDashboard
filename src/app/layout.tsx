@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Leads Dashboard",
+  title: "Integrated Financial",
   description: "Operational overview for pipeline health and team workload",
 };
 

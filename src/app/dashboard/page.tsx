@@ -169,12 +169,12 @@ function MetricCard({ title, value, subtext, icon, trend, colorClass }: { title:
         )}
       </div>
       <div>
-        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{title}</h4>
+        <h4 className="text-xs font-extrabold text-slate-400 uppercase tracking-wide mb-1.5">{title}</h4>
         <div className="flex items-baseline gap-2">
-          <span className="text-3xl font-black text-slate-900 tracking-tight">{value}</span>
+          <span className="text-3xl font-black text-slate-900 tracking-tight numbers">{value}</span>
         </div>
-        <p className="text-[10px] text-slate-500 font-bold mt-2 flex items-center gap-1.5">
-          <i className="fa-solid fa-arrow-right text-[8px] opacity-30"></i>
+        <p className="text-xs text-slate-500 font-semibold mt-2.5 flex items-center gap-1.5 leading-relaxed">
+          <i className="fa-solid fa-arrow-right text-[10px] opacity-30"></i>
           {subtext}
         </p>
       </div>
@@ -227,19 +227,19 @@ function IntelligenceHeatmap({ data }: { data: { hour: number; count: number }[]
     <div className="dashboard-card p-6 flex flex-col h-full animate-fade-in" style={{ animationDelay: '0.2s' }}>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest">Interaction Vol.</h3>
-          <p className="text-[10px] text-slate-400 font-bold mt-0.5 uppercase tracking-widest">Hourly Density Mapping</p>
+          <h3 className="text-base font-extrabold text-slate-900 uppercase tracking-wide">Interaction Vol.</h3>
+          <p className="text-xs text-slate-400 font-semibold uppercase tracking-wide mt-1.5">Hourly Density Mapping</p>
         </div>
-        <div className="w-8 h-8 rounded-xl bg-slate-50 flex items-center justify-center text-slate-400">
-          <i className="fa-solid fa-chart-simple text-xs"></i>
+        <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-slate-400">
+          <i className="fa-solid fa-chart-column text-base"></i>
         </div>
       </div>
       {!data || data.length === 0 ? (
-        <div className="flex-1 flex items-center justify-center bg-slate-50 rounded-2xl border border-dashed border-slate-200">
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Analyzing Activity Flow...</p>
+        <div className="flex-1 flex items-center justify-center bg-slate-50 rounded-2xl border border-dashed border-slate-200 min-h-[280px]">
+          <p className="text-xs font-extrabold text-slate-400 uppercase tracking-wide">Analyzing Activity Flow...</p>
         </div>
       ) : (
-        <div className="flex-1 min-h-[160px]"><canvas ref={chartRef}></canvas></div>
+        <div className="flex-1 min-h-[280px]"><canvas ref={chartRef}></canvas></div>
       )}
     </div>
   );
@@ -291,18 +291,18 @@ function VelocityMap({ data }: { data: { label: string; count: number }[] }) {
   }, [data]);
 
   return (
-    <div className="dashboard-card p-8 flex-1 flex flex-col h-full animate-fade-in">
-      <div className="flex items-center justify-between mb-8">
+    <div className="dashboard-card p-6 flex-1 flex flex-col h-full animate-fade-in">
+      <div className="flex items-center justify-between mb-6">
         <div>
-          <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Capture Velocity</h3>
-          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Global acquisition index</p>
+          <h3 className="text-base font-extrabold text-slate-900 uppercase tracking-wide">Capture Velocity</h3>
+          <p className="text-xs text-slate-400 font-semibold uppercase tracking-wide mt-1.5">Global acquisition index</p>
         </div>
-        <div className="flex items-center gap-2 text-[10px] font-black text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-full border border-indigo-100">
+        <div className="flex items-center gap-2 text-xs font-extrabold text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-full border border-indigo-100">
           <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></span>
           LIVE FEED
         </div>
       </div>
-      <div className="flex-1 min-h-[220px]"><canvas ref={chartRef}></canvas></div>
+      <div className="flex-1 min-h-[280px]"><canvas ref={chartRef}></canvas></div>
     </div>
   );
 }
@@ -340,18 +340,18 @@ function FunnelAnatomy({ metrics }: { metrics: any }) {
   }, [metrics]);
 
   return (
-    <div className="dashboard-card p-8 w-full lg:w-[320px] shrink-0 flex flex-col h-full animate-fade-in" style={{ animationDelay: '0.1s' }}>
-      <div className="mb-8">
-        <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Portfolio</h3>
-        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Segmentation Architecture</p>
+    <div className="dashboard-card p-6 w-full flex flex-col h-full animate-fade-in" style={{ animationDelay: '0.1s' }}>
+      <div className="mb-6">
+        <h3 className="text-base font-extrabold text-slate-900 uppercase tracking-wide">Portfolio</h3>
+        <p className="text-xs text-slate-400 font-semibold uppercase tracking-wide mt-1.5">Segmentation Architecture</p>
       </div>
-      <div className="relative flex-1 min-h-[160px] mb-8">
+      <div className="relative flex-1 min-h-[280px] mb-6">
         <canvas ref={chartRef}></canvas>
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
           <p className="text-3xl font-black text-slate-900 tracking-tight">
             {metrics.totalLeads > 0 ? Math.round((metrics.qualifiedLeads / metrics.totalLeads) * 100) : 0}%
           </p>
-          <p className="text-[9px] font-black text-indigo-600 uppercase tracking-widest mt-1">Yield</p>
+          <p className="text-xs font-extrabold text-indigo-600 uppercase tracking-wide mt-1">Yield</p>
         </div>
       </div>
       <div className="space-y-3 pt-6 border-t border-slate-100">
@@ -431,6 +431,10 @@ export default function DashboardPage() {
   const isManuallyAdvancingRef = useRef(false);
   // Ref to track current call state (for use in closures)
   const currentCallRef = useRef<any>(null);
+  // State for call duration display (updates every second)
+  const [callDuration, setCallDuration] = useState<number>(0);
+  // State for mute status
+  const [isMuted, setIsMuted] = useState(false);
   // Ref to track current active lead ID (for use in closures to prevent race conditions)
   const activeLeadIdRef = useRef<string | null>(null);
 
@@ -728,6 +732,46 @@ export default function DashboardPage() {
     window.addEventListener('message', handleRcMessage);
     return () => window.removeEventListener('message', handleRcMessage);
   }, []);
+
+  // Update call duration every second when call is active
+  useEffect(() => {
+    if (!callStartTime || !currentCall) {
+      setCallDuration(0);
+      return;
+    }
+
+    const interval = setInterval(() => {
+      const now = new Date();
+      const elapsed = Math.floor((now.getTime() - callStartTime.getTime()) / 1000);
+      setCallDuration(elapsed);
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [callStartTime, currentCall]);
+
+  // Track mute state from session
+  useEffect(() => {
+    if (!currentCall) {
+      setIsMuted(false);
+      return;
+    }
+
+    // Check initial mute state
+    setIsMuted(currentCall.muted || false);
+
+    // Listen for mute state changes (if the session has events for this)
+    // Note: Some WebPhone implementations may not have mute events, so we check on render
+    const checkMuteState = () => {
+      if (currentCall) {
+        setIsMuted(currentCall.muted || false);
+      }
+    };
+
+    // Check periodically (every 500ms) as fallback
+    const interval = setInterval(checkMuteState, 500);
+
+    return () => clearInterval(interval);
+  }, [currentCall]);
 
   const handleDownloadAllRecordings = async () => {
     if (!rcToken) {
@@ -3074,7 +3118,12 @@ export default function DashboardPage() {
 
   return (
     <>
-      <div className="bg-[#F8FAFC] text-slate-900 h-screen overflow-hidden flex" style={{ fontFamily: "var(--font-geist-sans), 'Inter', sans-serif" }}>
+      <div className="bg-[#F8FAFC] text-slate-900 h-screen overflow-hidden flex" style={{ 
+        fontFamily: "var(--font-geist-sans), 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+        WebkitFontSmoothing: 'antialiased',
+        MozOsxFontSmoothing: 'grayscale',
+        textRendering: 'optimizeLegibility'
+      }}>
         <style>{`
           /* Enterprise Design System - Stable & Premium */
         :root {
@@ -3093,22 +3142,39 @@ export default function DashboardPage() {
           background: #ffffff;
           border: 1px solid var(--p-slate-200);
           border-radius: var(--card-radius);
-          box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-          transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+          box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05);
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         .dashboard-card:hover {
-          border-color: var(--p-indigo);
-          box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+          border-color: rgba(79, 70, 229, 0.3);
+          box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+          transform: translateY(-2px);
         }
 
         .stats-card {
-          padding: 24px;
+          padding: 28px;
           display: flex;
           flex-direction: column;
-          gap: 12px;
+          gap: 14px;
           position: relative;
           overflow: hidden;
+        }
+
+        .stats-card::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          height: 3px;
+          background: linear-gradient(90deg, transparent, var(--p-indigo), transparent);
+          opacity: 0;
+          transition: opacity 0.3s ease;
+        }
+
+        .stats-card:hover::before {
+          opacity: 1;
         }
 
         .stats-icon {
@@ -3116,9 +3182,16 @@ export default function DashboardPage() {
           height: 44px;
           border-radius: 12px;
           display: flex;
-          items-center;
+          align-items: center;
           justify-content: center;
           font-size: 18px;
+          flex-shrink: 0;
+        }
+
+        .stats-icon i {
+          display: flex;
+          align-items: center;
+          justify-content: center;
         }
 
         .chart-panel {
@@ -3143,10 +3216,12 @@ export default function DashboardPage() {
         }
 
         .status-badge {
-          font-size: 10px;
-          font-weight: 800;
-          letter-spacing: 0.05em;
-          padding: 4px 8px;
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0.06em;
+          padding: 5px 10px;
+          line-height: 1.4;
+          -webkit-font-smoothing: antialiased;
           border-radius: 6px;
           text-transform: uppercase;
         }
@@ -3155,23 +3230,41 @@ export default function DashboardPage() {
           display: flex;
           align-items: center;
           gap: 12px;
-          padding: 10px 14px;
+          padding: 12px 16px;
           border-radius: 12px;
           font-size: 14px;
           font-weight: 600;
-          transition: all 0.2s ease;
+          line-height: 1.5;
+          letter-spacing: -0.01em;
+          transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
           color: #94A3B8;
+          position: relative;
+          -webkit-font-smoothing: antialiased;
+          -moz-osx-font-smoothing: grayscale;
         }
 
         .nav-link:hover {
-          background: rgba(255, 255, 255, 0.05);
+          background: rgba(255, 255, 255, 0.08);
           color: #ffffff;
+          transform: translateX(2px);
         }
 
         .nav-link.active {
-          background: var(--p-indigo);
+          background: linear-gradient(135deg, var(--p-indigo) 0%, #4338CA 100%);
           color: #ffffff;
-          box-shadow: 0 4px 12px rgba(79, 70, 229, 0.25);
+          box-shadow: 0 4px 16px rgba(79, 70, 229, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+        }
+
+        .nav-link.active::before {
+          content: '';
+          position: absolute;
+          left: 0;
+          top: 50%;
+          transform: translateY(-50%);
+          width: 3px;
+          height: 60%;
+          background: #ffffff;
+          border-radius: 0 2px 2px 0;
         }
 
         .btn-premium {
@@ -3211,9 +3304,12 @@ export default function DashboardPage() {
         />
 
         {/* 1. LEFT NAVIGATION (SLIMMER & MORE MODERN) */}
-        <aside className="w-64 bg-slate-950 text-white flex flex-col shrink-0 border-r border-white/10">
-          <div className="h-16 flex items-center px-6 mb-4">
-            <span className="font-bold tracking-tight text-lg">Integrated <span className="text-blue-400">Financial</span></span>
+        <aside className="w-64 bg-gradient-to-b from-slate-950 to-slate-900 text-white flex flex-col shrink-0 border-r border-white/10 shadow-xl">
+          <div className="h-20 flex items-center px-6 mb-6 border-b border-white/5">
+            <div className="flex items-baseline gap-1.5">
+              <span className="font-black tracking-tight text-base leading-tight" style={{ letterSpacing: '-0.01em' }}>Integrated</span>
+              <span className="font-bold text-blue-400 text-base tracking-tight" style={{ letterSpacing: '-0.01em' }}>Financial</span>
+            </div>
           </div>
 
           <nav className="px-3 space-y-1">
@@ -3221,7 +3317,7 @@ export default function DashboardPage() {
               onClick={() => setActiveView('overview')}
               className={`nav-link w-full ${activeView === 'overview' ? 'active' : ''}`}
             >
-              <i className="fa-solid fa-house-chimney w-5 text-center"></i>
+              <i className="fa-solid fa-house-chimney w-5 flex items-center justify-center"></i>
               <span>Dashboard</span>
             </button>
 
@@ -3229,7 +3325,7 @@ export default function DashboardPage() {
               onClick={() => setActiveView('dialer')}
               className={`nav-link w-full ${activeView === 'dialer' ? 'active' : ''}`}
             >
-              <i className="fa-solid fa-headset w-5 text-center"></i>
+              <i className="fa-solid fa-headset w-5 flex items-center justify-center"></i>
               <span>Power Dialer</span>
             </button>
 
@@ -3237,7 +3333,7 @@ export default function DashboardPage() {
               onClick={() => setActiveView('contacts')}
               className={`nav-link w-full ${activeView === 'contacts' ? 'active' : ''}`}
             >
-              <i className="fa-solid fa-user-group w-5 text-center"></i>
+              <i className="fa-solid fa-users w-5 flex items-center justify-center"></i>
               <span>CRM Contacts</span>
             </button>
 
@@ -3248,7 +3344,7 @@ export default function DashboardPage() {
               }}
               className={`nav-link w-full ${activeView === 'settings' ? 'active' : ''}`}
             >
-              <i className="fa-solid fa-gear w-5 text-center"></i>
+              <i className="fa-solid fa-gear w-5 flex items-center justify-center"></i>
               <span>Settings</span>
             </button>
 
@@ -3305,9 +3401,9 @@ export default function DashboardPage() {
               <div className="mt-8 px-4 flex-1 overflow-y-auto no-scrollbar">
                 <div className="flex items-center justify-between px-3 mb-6">
                   <div className="flex items-center gap-2">
-                    <span className="text-[11px] uppercase font-bold tracking-[0.2em] text-slate-400">Live Queue</span>
+                    <span className="text-xs uppercase font-bold tracking-wide text-slate-400">Live Queue</span>
                   </div>
-                  <span className="text-[10px] bg-slate-800 text-blue-400 px-2 py-0.5 rounded-md font-bold border border-white/5">
+                  <span className="text-xs bg-slate-800 text-blue-400 px-2.5 py-1 rounded-md font-bold border border-white/5">
                     {remainingCount} REMAINING
                   </span>
                 </div>
@@ -3318,7 +3414,7 @@ export default function DashboardPage() {
                     <div className="space-y-2 opacity-30">
                       {historyLeads.map((lead) => (
                         <div key={lead.id} className="px-3 py-2 rounded-lg border border-white/5 bg-white/5">
-                          <p className="text-[10px] font-mono text-slate-400">{lead.phone}</p>
+                          <p className="text-xs font-mono text-slate-400 tracking-tight">{lead.phone}</p>
                         </div>
                       ))}
                     </div>
@@ -3328,7 +3424,7 @@ export default function DashboardPage() {
                   {activeItem && (
                     <div className="space-y-2">
                       <div className="flex items-center gap-2 px-3">
-                        <span className="text-[9px] font-black uppercase tracking-[0.2em] text-blue-500">Active Session</span>
+                        <span className="text-xs font-extrabold uppercase tracking-wide text-blue-500">Active Session</span>
                         <div className="h-px bg-blue-500/20 flex-1"></div>
                       </div>
                       <div className="bg-gradient-to-br from-blue-600 to-indigo-700 p-4 rounded-2xl shadow-lg shadow-blue-900/40 border border-blue-400/20 relative overflow-hidden group">
@@ -3341,7 +3437,7 @@ export default function DashboardPage() {
                         </div>
                         <div className="mt-3 flex items-center gap-2">
                           <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-ping"></div>
-                          <span className="text-[9px] text-blue-100 font-bold uppercase tracking-widest">In Progress</span>
+                          <span className="text-xs text-blue-100 font-bold uppercase tracking-wide">In Progress</span>
                         </div>
                       </div>
                     </div>
@@ -3351,7 +3447,7 @@ export default function DashboardPage() {
                   {nextItems.length > 0 && (
                     <div className="space-y-3">
                       <div className="flex items-center gap-2 px-3 pt-2">
-                        <span className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500">Next</span>
+                        <span className="text-xs font-extrabold uppercase tracking-wide text-slate-500">Next</span>
                         <div className="h-px bg-white/5 flex-1"></div>
                       </div>
                       <div className="space-y-2">
@@ -3368,10 +3464,10 @@ export default function DashboardPage() {
                           >
                             <div className="flex justify-between items-center">
                               <div>
-                                <h5 className="text-[12px] font-semibold text-slate-200 group-hover:text-white transition-colors">
+                                <h5 className="text-sm font-semibold text-slate-200 group-hover:text-white transition-colors leading-tight">
                                   {lead.first_name} {lead.last_name}
                                 </h5>
-                                <p className="text-[10px] text-slate-500 font-mono mt-0.5 group-hover:text-slate-400">{lead.phone}</p>
+                                <p className="text-xs text-slate-500 font-mono mt-1 group-hover:text-slate-400 tracking-tight">{lead.phone}</p>
                               </div>
                               <div className="text-[10px] text-slate-600 font-bold">#{activeIdx + idx + 2}</div>
                             </div>
@@ -3386,7 +3482,7 @@ export default function DashboardPage() {
           })()}
 
           {/* Logout Button - Bottom of Sidebar */}
-          <div className="mt-auto p-3 border-t border-white/10">
+          <div className="mt-auto p-4 border-t border-white/10 bg-slate-900/50">
             <button
               onClick={async () => {
                 try {
@@ -3397,50 +3493,30 @@ export default function DashboardPage() {
                   alert('Failed to sign out. Please try again.');
                 }
               }}
-              className="nav-link w-full text-red-400 hover:text-red-300 hover:bg-red-500/10 border border-red-500/20"
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-red-400 hover:text-red-300 hover:bg-red-500/10 border border-red-500/20 transition-all hover:border-red-500/40 hover:shadow-lg hover:shadow-red-500/10"
             >
-              <i className="fa-solid fa-right-from-bracket w-5 text-center"></i>
-              <span>Logout</span>
+              <i className="fa-solid fa-right-from-bracket w-5 flex items-center justify-center"></i>
+              <span className="font-semibold">Logout</span>
             </button>
           </div>
         </aside>
 
         {/* VIEW: OVERVIEW */}
         {activeView === 'overview' && (
-          <main className="flex-1 p-8 lg:p-12 overflow-y-auto bg-[#F8FAFC]">
-            <header className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12">
-              <div>
-                <nav className="flex items-center gap-2 mb-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                  <span className="text-indigo-600">Enterprise</span>
-                  <i className="fa-solid fa-chevron-right text-[8px] opacity-30"></i>
-                  <span>Intelligence Hub</span>
-                </nav>
-                <h1 className="text-4xl font-black tracking-tight text-slate-900 leading-none">
-                  Performance <span className="text-indigo-600 italic">Portfolio</span>
-                </h1>
-              </div>
-
-              <div className="flex items-center gap-4">
-                <div className="bg-white border border-slate-200 rounded-2xl px-5 py-3 flex items-center gap-4 shadow-sm">
-                  <div className="text-right">
-                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5 text-left">System Health</p>
-                    <p className="text-xs font-black text-slate-800 flex items-center gap-2">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                      Operational
-                    </p>
-                  </div>
-                  <div className="w-px h-8 bg-slate-100"></div>
-                  <div className="text-right">
-                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5 text-left">Environment</p>
-                    <p className="text-xs font-black text-indigo-600">Production v4.2</p>
-                  </div>
-                </div>
-              </div>
+          <main className="flex-1 p-6 lg:p-10 overflow-y-auto bg-[#F8FAFC]">
+            <header className="max-w-7xl mx-auto mb-8">
+              <nav className="flex items-center gap-2 mb-3 text-xs font-extrabold uppercase tracking-wide text-slate-400">
+                <span className="text-indigo-600">Integrated Financial</span>
+              </nav>
+              <h1 className="text-4xl lg:text-5xl font-black tracking-tight text-slate-900 leading-tight mb-2" style={{ letterSpacing: '-0.04em' }}>
+                Dashboard
+              </h1>
+              <p className="text-sm lg:text-base text-slate-500 font-medium leading-relaxed max-w-2xl" style={{ letterSpacing: '-0.01em' }}>Real-time operational intelligence & analytics</p>
             </header>
 
-            <div className="max-w-7xl mx-auto space-y-10">
+            <div className="max-w-7xl mx-auto space-y-6">
               {/* TOP KPIs */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <MetricCard
                   title="Total Inventory"
                   value={metrics.totalLeads.toLocaleString()}
@@ -3453,7 +3529,7 @@ export default function DashboardPage() {
                   title="New Leads 24H"
                   value={metrics.todayCount}
                   subtext="Real-time capture stream"
-                  icon="fa-bolt-lightning"
+                  icon="fa-bolt"
                   colorClass="bg-blue-50 text-blue-600"
                 />
                 <MetricCard
@@ -3467,13 +3543,13 @@ export default function DashboardPage() {
                   title="Mean Engagement"
                   value={metrics.avgDuration > 0 ? `${Math.floor(metrics.avgDuration / 60)}m ${metrics.avgDuration % 60}s` : '0s'}
                   subtext="Avg session resolution"
-                  icon="fa-clock-rotate-left"
+                  icon="fa-clock"
                   colorClass="bg-amber-50 text-amber-600"
                 />
               </div>
 
               {/* ANALYTICS SECTION */}
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch">
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
                 <div className="lg:col-span-8">
                   <VelocityMap data={metrics.dailyVolume} />
                 </div>
@@ -3483,7 +3559,7 @@ export default function DashboardPage() {
               </div>
 
               {/* OPERATIONAL SECTION */}
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch pb-12">
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch pb-8">
                 <div className="lg:col-span-7">
                   <IntelligenceHeatmap data={metrics.activityHeatmap} />
                 </div>
@@ -3492,18 +3568,18 @@ export default function DashboardPage() {
                   <div className="dashboard-card h-full flex flex-col animate-fade-in" style={{ animationDelay: '0.3s' }}>
                     <div className="p-6 border-b border-slate-100 flex items-center justify-between">
                       <div>
-                        <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest">Recent Intelligence</h3>
-                        <p className="text-[10px] text-slate-400 font-bold uppercase mt-1 tracking-widest">Active Capture Stream</p>
+                        <h3 className="text-base font-extrabold text-slate-900 uppercase tracking-wide">Recent Intelligence</h3>
+                        <p className="text-xs text-slate-400 font-semibold uppercase mt-1.5 tracking-wide">Active Capture Stream</p>
                       </div>
                       <button
                         onClick={() => setActiveView('contacts')}
                         className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 text-slate-400 hover:text-indigo-600 hover:border-indigo-100 transition-all"
                       >
-                        <i className="fa-solid fa-up-right-from-square text-[10px]"></i>
+                        <i className="fa-solid fa-arrow-up-right text-xs"></i>
                       </button>
                     </div>
 
-                    <div className="flex-1 p-6 space-y-3 overflow-y-auto max-h-[400px] no-scrollbar">
+                    <div className="flex-1 p-6 space-y-3 overflow-y-auto no-scrollbar">
                       {leads.slice(0, 6).map((lead) => (
                         <div
                           key={lead.id}
@@ -3520,7 +3596,7 @@ export default function DashboardPage() {
                                   {lead.first_name} {lead.last_name}
                                 </p>
                                 <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">
-                                  <i className="fa-regular fa-clock mr-1"></i>
+                                  <i className="fa-solid fa-clock mr-1 text-xs"></i>
                                   {getTimeAgo(lead.created_at)}
                                 </p>
                               </div>
@@ -3548,10 +3624,10 @@ export default function DashboardPage() {
               {/* 2. MAIN LEAD AREA */}
               <main className="flex-1 flex flex-col bg-white overflow-hidden">
                 {/* Modern Header */}
-                <header className="h-20 border-b border-slate-100 flex items-center justify-between px-8 shrink-0">
+                <header className="h-20 border-b border-slate-100 bg-white/50 backdrop-blur-sm flex items-center justify-between px-8 shrink-0 shadow-sm">
                   <div className="flex items-center gap-5">
                     <div className="relative">
-                      <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-blue-200">
+                      <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-blue-200/50 ring-2 ring-blue-100">
                         {getInitials(activeLead?.first_name || '', activeLead?.last_name || '')}
                       </div>
                       {/* <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-white rounded-full flex items-center justify-center shadow-sm">
@@ -3562,9 +3638,9 @@ export default function DashboardPage() {
                       <h1 className="text-xl font-bold text-slate-900 tracking-tight">
                         {activeLead ? `${activeLead.first_name} ${activeLead.last_name}` : 'Select a Lead'}
                       </h1>
-                      <div className="flex items-center gap-3 mt-0.5">
-                        <span className="text-xs font-medium text-slate-500">
-                          <i className="fa-solid fa-location-dot mr-1 opacity-70"></i>
+                      <div className="flex items-center gap-3 mt-1.5">
+                        <span className="text-xs font-semibold text-slate-500 flex items-center gap-1">
+                          <i className="fa-solid fa-location-dot text-xs"></i>
                           {activeLead?.city ? `${activeLead.city}, ${activeLead.state || ''}` : 'Unknown Location'}
                         </span>
                         <div className="h-1 w-1 rounded-full bg-slate-300"></div>
@@ -3589,7 +3665,7 @@ export default function DashboardPage() {
                           <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1 transition-colors group-hover:text-blue-600">Mobile Phone</label>
                           <div className="flex items-center justify-between text-slate-900 font-semibold border-b border-slate-100 pb-2 group-hover:border-blue-200 transition-all">
                             <span>{activeLead?.phone || '--'}</span>
-                            <i className="fa-solid fa-copy text-slate-300 text-[10px]"></i>
+                            <i className="fa-solid fa-copy text-slate-300 text-xs"></i>
                           </div>
                         </div>
                         <div>
@@ -3653,7 +3729,7 @@ export default function DashboardPage() {
                           }
                           className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-600 flex items-center gap-1 hover:text-blue-800"
                         >
-                          <i className="fa-solid fa-plus text-[9px]"></i> Tag
+                          <i className="fa-solid fa-plus text-xs"></i> Tag
                         </button>
                       </div>
                       <div className="flex flex-wrap gap-2">
@@ -3671,7 +3747,7 @@ export default function DashboardPage() {
                                 className="text-blue-500 hover:text-blue-800 disabled:opacity-50"
                                 title="Remove tag"
                               >
-                                <i className="fa-solid fa-xmark text-[10px]"></i>
+                                <i className="fa-solid fa-xmark text-xs"></i>
                               </button>
                             </div>
                           ))
@@ -3771,7 +3847,7 @@ export default function DashboardPage() {
                                           {/* Show user name for status changes */}
                                           {activity.activity_type === 'disposition_change' && metadata?.user_name && (
                                             <div className="flex items-center gap-1.5 mt-1">
-                                              <i className="fa-solid fa-user text-[10px] text-slate-400"></i>
+                                              <i className="fa-solid fa-user text-xs text-slate-400"></i>
                                               <span className="text-xs text-slate-500 font-medium">
                                                 by {metadata.user_name}
                                               </span>
@@ -3819,7 +3895,7 @@ export default function DashboardPage() {
                                             <span className="px-2 py-0.5 rounded bg-white border border-green-200 text-green-700 font-semibold">
                                               {metadata?.old_status_display || metadata?.old_status || 'Unknown'}
                                             </span>
-                                            <i className="fa-solid fa-arrow-right text-green-600 text-[10px]"></i>
+                                            <i className="fa-solid fa-arrow-right text-green-600 text-xs"></i>
                                             <span className="px-2 py-0.5 rounded bg-white border border-green-200 text-green-700 font-semibold">
                                               {metadata?.new_status_display || metadata?.new_status || 'Unknown'}
                                             </span>
@@ -3872,7 +3948,7 @@ export default function DashboardPage() {
                     } disabled:opacity-50 disabled:cursor-not-allowed`}
                     title={powerDialerEnabled ? 'Power Dialer: ON - Auto-dialing enabled' : 'Power Dialer: OFF - Manual dial only'}
                   >
-                    <i className={`fa-solid ${powerDialerEnabled ? 'fa-bolt' : 'fa-bolt-slash'}`}></i>
+                    <i className={`fa-solid ${powerDialerEnabled ? 'fa-bolt' : 'fa-bolt'}`} style={{ opacity: powerDialerEnabled ? 1 : 0.3 }}></i>
                     Power Dialer
                   </button>
                 </div> */}
@@ -3885,7 +3961,7 @@ export default function DashboardPage() {
                         ? 'bg-blue-600/20 border-blue-500/50 animate-pulse'
                         : 'bg-blue-600/20 border-blue-500/50'
                       }`}>
-                      <i className={`fa-solid text-3xl ${currentCall ? 'fa-phone text-blue-400' :
+                      <i className={`fa-solid text-3xl flex items-center justify-center ${currentCall ? 'fa-phone text-blue-400' :
                         webPhoneReady
                           ? powerDialerEnabled
                             ? 'fa-bolt text-amber-400'
@@ -3953,7 +4029,7 @@ export default function DashboardPage() {
                           }}
                           className="px-6 py-3 bg-red-600 hover:bg-red-700 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-lg"
                         >
-                          <i className="fa-solid fa-phone-slash"></i> End Call
+                          <i className="fa-solid fa-phone-slash text-base"></i> End Call
                         </button>
                       </div>
                     ) : webPhoneReady && activeLead?.phone && !powerDialerEnabled ? (
@@ -4080,7 +4156,7 @@ export default function DashboardPage() {
                       disabled={isDownloadingRecordings}
                       className="text-[10px] text-blue-500 hover:text-blue-700 underline flex items-center gap-1"
                     >
-                      {isDownloadingRecordings ? <i className="fa-solid fa-spinner fa-spin"></i> : <i className="fa-solid fa-download"></i>}
+                      {isDownloadingRecordings ? <i className="fa-solid fa-circle-notch fa-spin"></i> : <i className="fa-solid fa-download"></i>}
                       Download All Recordings (90 Days)
                     </button>
                   </div>
@@ -4155,7 +4231,7 @@ export default function DashboardPage() {
                       disabled={isImporting}
                       className="bg-white border border-slate-200 text-slate-600 px-5 py-2.5 rounded-xl font-bold text-sm shadow-sm hover:bg-slate-50 transition-all flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
                     >
-                      <i className="fa-solid fa-cloud-arrow-up text-[10px]"></i>
+                      <i className="fa-solid fa-cloud-arrow-up text-xs"></i>
                       Import CSV
                     </button>
 
@@ -4810,7 +4886,7 @@ export default function DashboardPage() {
                     disabled={isLoadingUsers}
                     className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all disabled:opacity-60 flex items-center gap-2"
                   >
-                    <i className={`fa-solid fa-rotate ${isLoadingUsers ? 'fa-spin' : ''}`}></i>
+                    <i className={`fa-solid fa-arrow-rotate-right ${isLoadingUsers ? 'fa-spin' : ''}`}></i>
                     Refresh
                   </button>
                 </div>
@@ -4955,7 +5031,7 @@ export default function DashboardPage() {
                     </>
                   ) : (
                     <>
-                      <i className="fa-solid fa-cloud-arrow-up text-[11px]"></i>
+                      <i className="fa-solid fa-cloud-arrow-up text-xs"></i>
                       Import CSV
                     </>
                   )}
@@ -5211,6 +5287,97 @@ export default function DashboardPage() {
           </div>
         )
       }
+
+      {/* Active Call Popup - Shows across all screens when call is active */}
+      {currentCall && (
+        <div className="active-call-popup">
+          <div className="glass-modal max-w-md w-[calc(100vw-2rem)] p-5 shadow-2xl border-2 border-indigo-200/50">
+            <div className="flex items-center gap-4">
+              {/* Call Icon & Status */}
+              <div className="flex-shrink-0">
+                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
+                  <i className="fa-solid fa-phone text-white text-xl"></i>
+                </div>
+                {callStartTime && (
+                  <div className="mt-1.5 flex items-center justify-center">
+                    <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+                  </div>
+                )}
+              </div>
+
+              {/* Call Info */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <h4 className="text-base font-black text-slate-900 truncate">
+                    {activeLead 
+                      ? `${activeLead.first_name || ''} ${activeLead.last_name || ''}`.trim() || 'Unknown Contact'
+                      : 'Active Call'}
+                  </h4>
+                  {callStartTime && (
+                    <span className="px-2 py-0.5 bg-emerald-50 text-emerald-600 text-[10px] font-black uppercase rounded-md border border-emerald-200">
+                      Live
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm font-semibold text-slate-500 truncate">
+                  {activeLead?.phone || 'Calling...'}
+                </p>
+                {callStartTime && callDuration > 0 && (
+                  <p className="text-xs font-bold text-indigo-600 mt-1">
+                    {formatCallDuration(callDuration)}
+                  </p>
+                )}
+              </div>
+
+              {/* Call Controls */}
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {/* Mute/Unmute Button */}
+                <button
+                  onClick={() => {
+                    if (currentCall) {
+                      try {
+                        if (isMuted) {
+                          currentCall.unmute();
+                          setIsMuted(false);
+                        } else {
+                          currentCall.mute();
+                          setIsMuted(true);
+                        }
+                      } catch (error) {
+                        console.error('Error toggling mute:', error);
+                      }
+                    }
+                  }}
+                  className="w-10 h-10 rounded-xl bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition-colors"
+                  title={isMuted ? 'Unmute' : 'Mute'}
+                >
+                  <i className={`fa-solid text-base ${isMuted ? 'fa-microphone-slash text-rose-500' : 'fa-microphone text-slate-600'}`}></i>
+                </button>
+
+                {/* Hangup Button */}
+                <button
+                  onClick={() => {
+                    if (currentCall) {
+                      try {
+                        currentCall.bye();
+                        setCurrentCall(null);
+                        currentCallRef.current = null;
+                        setCallStartTime(null);
+                      } catch (error) {
+                        console.error('Error hanging up:', error);
+                      }
+                    }
+                  }}
+                  className="w-12 h-12 rounded-xl bg-red-500 hover:bg-red-600 flex items-center justify-center shadow-lg shadow-red-500/30 transition-all hover:scale-105"
+                  title="End Call"
+                >
+                  <i className="fa-solid fa-phone-slash text-white text-lg"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
