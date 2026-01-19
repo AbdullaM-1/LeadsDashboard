@@ -371,6 +371,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const [activeView, setActiveView] = useState<'overview' | 'dialer' | 'contacts' | 'settings'>('overview');
   const [userIsAdmin, setUserIsAdmin] = useState(false);
+  const [hasOpenedContact, setHasOpenedContact] = useState(false);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [activeLead, setActiveLead] = useState<Lead | null>(null);
   const [loading, setLoading] = useState(false);
@@ -2283,12 +2284,14 @@ export default function DashboardPage() {
   const handleLeadClick = (lead: Lead) => {
     setActiveLead(lead);
     setActiveView('dialer');
+    setHasOpenedContact(true); // Mark that a contact has been opened
   };
 
   const handleLeadPhoneClick = (e: React.MouseEvent, lead: Lead) => {
     e.stopPropagation();
     setActiveLead(lead);
     setActiveView('dialer');
+    setHasOpenedContact(true); // Mark that a contact has been opened
     setPendingDialLead(lead); // Queue the dial to start as soon as UI/Phone is ready
   };
 
@@ -3292,6 +3295,16 @@ export default function DashboardPage() {
               <i className="fa-solid fa-users w-5 flex items-center justify-center"></i>
               <span>CRM Contacts</span>
             </button>
+
+            {hasOpenedContact && (
+              <button
+                onClick={() => setActiveView('dialer')}
+                className={`nav-link w-full ${activeView === 'dialer' ? 'active' : ''}`}
+              >
+                <i className="fa-solid fa-bolt w-5 flex items-center justify-center"></i>
+                <span>Power Dialer</span>
+              </button>
+            )}
 
             {userIsAdmin && (
               <button
