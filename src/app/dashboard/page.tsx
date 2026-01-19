@@ -1369,12 +1369,23 @@ export default function DashboardPage() {
         // This ensures power dialer only dials what the user can see
         // Note: The leads array is already filtered by statusFilter in fetchLeads,
         // so we can use it directly without additional filtering
+        
+        // Check if leads array is empty
+        if (leads.length === 0) {
+          console.warn('Power dialer - Leads array is empty! This might be a timing issue.');
+          console.warn('Power dialer - Current view:', activeView, 'Status filter:', statusFilter);
+          // Leads might not be loaded yet - this is a timing issue
+          // The eligiblePowerDialCount shows the correct count, but leads state is stale
+        }
+        
         leadsToDial = leads;
         
         console.log('Power dialer - Using current page leads (viewport only):', leadsToDial.length, 'leads');
         console.log('Power dialer - Current status filter:', statusFilter, 'View mode:', viewMode);
         if (leadsToDial.length > 0) {
           console.log('Power dialer - Sample lead statuses:', leadsToDial.slice(0, 3).map(l => ({ id: l.id, status: l.status, phone: l.phone })));
+        } else {
+          console.warn('Power dialer - WARNING: leads array is empty! This might cause "No leads found" error.');
         }
       }
 
@@ -1400,7 +1411,12 @@ export default function DashboardPage() {
         } else if (selectedLeads.size > 0) {
           alert('No selected leads have phone numbers.');
         } else {
-          alert(`No leads with phone numbers found for status "${statusFilter}".`);
+          // Provide more helpful error message
+          if (leadsToDial.length === 0) {
+            alert(`No leads found. Please make sure you're viewing leads in the contacts view and that leads are loaded.`);
+          } else {
+            alert(`None of the ${leadsToDial.length} lead(s) on this page have phone numbers. Please check your leads data.`);
+          }
         }
         setLoading(false);
         return;
@@ -1556,7 +1572,7 @@ export default function DashboardPage() {
       alert('Failed to start power dialing. Please try again.');
       setLoading(false);
     }
-  }, [webPhone, webPhoneReady, isPowerDialing, currentCall, selectedLeads, statusFilter, dateFilterMode, selectedDate, selectedMonth, viewMode]);
+  }, [webPhone, webPhoneReady, isPowerDialing, currentCall, selectedLeads, statusFilter, dateFilterMode, selectedDate, selectedMonth, viewMode, leads, activeView]);
 
   // Move to next lead after call ends (when power dialing)
   useEffect(() => {
@@ -3572,6 +3588,11 @@ export default function DashboardPage() {
                 .slice(0, 5);
             }
 
+            // Only show Live Queue when power dialing is active
+            if (!isPowerDialing) {
+              return null;
+            }
+
             return (
               <div className="mt-8 px-4 flex-1 overflow-y-auto no-scrollbar">
                 <div className="flex items-center justify-between px-3 mb-6">
@@ -3795,6 +3816,16 @@ export default function DashboardPage() {
                   </div>
 
                   <div className="flex items-center gap-3">
+                    {isPowerDialing && (
+                      <button
+                        onClick={() => startPowerDialing()}
+                        className="px-4 py-2 bg-red-600 hover:bg-red-700 rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-lg text-white"
+                        title="Stop Power Dialer"
+                      >
+                        <i className="fa-solid fa-stop"></i>
+                        <span>Stop Power Dialer</span>
+                      </button>
+                    )}
                   </div>
                 </header>
 
@@ -4069,6 +4100,7 @@ export default function DashboardPage() {
                 <div className="bg-[#1E293B] shadow-inner h-[400px] overflow-hidden relative flex flex-col">
                   {/* Video elements are now at root level for WebPhone initialization */}
 
+
                   {isDownloadingRecordings && (
                     <div className="absolute inset-0 bg-slate-900/90 z-20 flex flex-col items-center justify-center text-white p-6 text-center">
                       <i className="fa-solid fa-cloud-arrow-down text-3xl mb-4 text-blue-400 animate-bounce"></i>
@@ -4115,8 +4147,11 @@ export default function DashboardPage() {
 
                     <h3 className="text-lg font-bold mb-2">Web Phone</h3>
                     <p className="text-xs text-slate-400 mb-2 uppercase tracking-widest text-center px-4">{webPhoneStatus}</p>
-                    {powerDialerEnabled && webPhoneReady && (
+                    {isPowerDialing && (
                       <p className="text-xs text-amber-400 mb-4 font-bold uppercase tracking-widest">⚡ Power Dialer Active</p>
+                    )}
+                    {powerDialerEnabled && webPhoneReady && !isPowerDialing && (
+                      <p className="text-xs text-amber-400 mb-4 font-bold uppercase tracking-widest">⚡ Power Dialer Enabled</p>
                     )}
 
                     {activeLead?.phone && (
