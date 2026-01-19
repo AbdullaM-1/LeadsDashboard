@@ -1,6 +1,10 @@
 import { createBrowserClient } from '@supabase/ssr';
 
-export const supabaseUrl = 'https://yiicekljygipqdcqxouu.supabase.co';
-export const supabaseAnonKey = 'sb_publishable_TQIVUqqHPz1uhWhg8YOXFQ_LqCjSROr';
+export const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+export const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error('Missing Supabase environment variables. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY');
+}
 
 export const supabase = createBrowserClient(supabaseUrl, supabaseAnonKey);
