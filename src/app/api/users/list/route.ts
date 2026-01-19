@@ -42,11 +42,22 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Get roles from user_profiles
+    const userIds = data.users.map(u => u.id);
+    const { data: profiles } = await supabaseAdmin
+      .from('user_profiles')
+      .select('id, role')
+      .in('id', userIds);
+
+    // Create a map of user ID to role
+    const roleMap = new Map(profiles?.map(p => [p.id, p.role]) || []);
+
     // Format users for response
     const users = data.users.map((user) => ({
       id: user.id,
       email: user.email,
       name: user.user_metadata?.name || '',
+      role: roleMap.get(user.id) || 'user',
       created_at: user.created_at,
       last_sign_in_at: user.last_sign_in_at,
     }));

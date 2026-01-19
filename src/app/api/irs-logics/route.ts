@@ -55,16 +55,6 @@ export async function POST(request: NextRequest) {
     console.log('[irs] Received lead data:', JSON.stringify(leadData, null, 2));
 
     // Validate required fields
-    if (!leadData.last_name || leadData.last_name.trim() === '') {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "LastName is required and cannot be empty",
-        },
-        { status: 400 }
-      );
-    }
-
     if (!leadData.first_name || leadData.first_name.trim() === '') {
       return NextResponse.json(
         {
@@ -77,8 +67,9 @@ export async function POST(request: NextRequest) {
 
     // Build payload — align fields to your tenant's required schema
     // Only include fields that have values (don't send empty strings)
+    // If last_name is empty, use "N/A" as default
     const payload: any = {
-      LastName: leadData.last_name.trim(),
+      LastName: (leadData.last_name && leadData.last_name.trim()) ? leadData.last_name.trim() : 'N/A',
       FirstName: leadData.first_name.trim(),
       ProductID: 1,
       StatusID: 1,

@@ -227,8 +227,8 @@ function IntelligenceHeatmap({ data }: { data: { hour: number; count: number }[]
     <div className="dashboard-card p-6 flex flex-col h-full animate-fade-in" style={{ animationDelay: '0.2s' }}>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h3 className="text-base font-extrabold text-slate-900 uppercase tracking-wide">Interaction Vol.</h3>
-          <p className="text-xs text-slate-400 font-semibold uppercase tracking-wide mt-1.5">Hourly Density Mapping</p>
+          <h3 className="text-base font-extrabold text-slate-900 uppercase tracking-wide">Call Activity</h3>
+          <p className="text-xs text-slate-400 font-semibold uppercase tracking-wide mt-1.5">Calls by hour</p>
         </div>
         <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-slate-400">
           <i className="fa-solid fa-chart-column text-base"></i>
@@ -342,8 +342,8 @@ function FunnelAnatomy({ metrics }: { metrics: any }) {
   return (
     <div className="dashboard-card p-6 w-full flex flex-col h-full animate-fade-in" style={{ animationDelay: '0.1s' }}>
       <div className="mb-6">
-        <h3 className="text-base font-extrabold text-slate-900 uppercase tracking-wide">Portfolio</h3>
-        <p className="text-xs text-slate-400 font-semibold uppercase tracking-wide mt-1.5">Segmentation Architecture</p>
+        <h3 className="text-base font-extrabold text-slate-900 uppercase tracking-wide">Lead Status</h3>
+        <p className="text-xs text-slate-400 font-semibold uppercase tracking-wide mt-1.5">Status breakdown</p>
       </div>
       <div className="relative flex-1 min-h-[280px] mb-6">
         <canvas ref={chartRef}></canvas>
@@ -351,12 +351,12 @@ function FunnelAnatomy({ metrics }: { metrics: any }) {
           <p className="text-3xl font-black text-slate-900 tracking-tight">
             {metrics.totalLeads > 0 ? Math.round((metrics.qualifiedLeads / metrics.totalLeads) * 100) : 0}%
           </p>
-          <p className="text-xs font-extrabold text-indigo-600 uppercase tracking-wide mt-1">Yield</p>
+          <p className="text-xs font-extrabold text-indigo-600 uppercase tracking-wide mt-1">Qualified</p>
         </div>
       </div>
       <div className="space-y-3 pt-6 border-t border-slate-100">
         <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-widest">
-          <span className="text-slate-400">Conversion Rate</span>
+          <span className="text-slate-400">Success Rate</span>
           <span className="text-slate-900">{metrics.conversionRate}%</span>
         </div>
         <div className="h-1 w-full bg-slate-100 rounded-full overflow-hidden">
@@ -403,6 +403,8 @@ export default function DashboardPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [organizationUsers, setOrganizationUsers] = useState<any[]>([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [newUser, setNewUser] = useState({ email: '', password: '', name: '', role: 'user' as 'admin' | 'user' });
   const [isCreatingUser, setIsCreatingUser] = useState(false);
   const [selectedDisposition, setSelectedDisposition] = useState<string>('');
@@ -693,13 +695,53 @@ export default function DashboardPage() {
     }
   }, []);
 
-  // Fetch users when settings view is active
+  // Delete user function
+  const deleteUser = useCallback(async (userId: string) => {
+    if (!confirm('Are you sure you want to delete this user? This action cannot be undone.')) {
+      return;
+    }
+
+    setDeletingUserId(userId);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        alert('You must be logged in to delete users');
+        return;
+      }
+
+      const response = await fetch('/api/users/delete', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ userId }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to delete user');
+      }
+
+      // Refresh the users list
+      await fetchUsers();
+      alert('User deleted successfully');
+    } catch (error: any) {
+      console.error('Error deleting user:', error);
+      alert(error.message || 'Failed to delete user');
+    } finally {
+      setDeletingUserId(null);
+    }
+  }, [fetchUsers]);
+
+  // Fetch users when settings view is active or when admin is on overview
   useEffect(() => {
-    if (activeView === 'settings') {
-      console.log('Settings view active, fetching users...');
+    if ((activeView === 'settings' || (activeView === 'overview' && userIsAdmin)) && organizationUsers.length === 0) {
+      console.log('Fetching users for admin view...');
       fetchUsers();
     }
-  }, [activeView, fetchUsers]);
+  }, [activeView, fetchUsers, userIsAdmin, organizationUsers.length]);
 
   const [isDownloadingRecordings, setIsDownloadingRecordings] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState('');
@@ -976,13 +1018,17 @@ export default function DashboardPage() {
 
             // Calculate call duration and save activity (always save, even if duration is 0)
             if (activeLead?.id) {
+              const now = new Date();
               const duration = callStartTime
-                ? Math.floor((new Date().getTime() - callStartTime.getTime()) / 1000)
+                ? Math.max(0, Math.floor((now.getTime() - callStartTime.getTime()) / 1000))
                 : 0;
 
               console.log('Saving incoming call terminated activity:', {
                 leadId: activeLead.id,
                 duration,
+                duration_seconds: duration,
+                callStartTime: callStartTime?.toISOString(),
+                endTime: now.toISOString(),
               });
 
               saveActivity(
@@ -991,7 +1037,9 @@ export default function DashboardPage() {
                 `Incoming call ended${duration > 0 ? ` - Duration: ${formatCallDuration(duration)}` : ''}`,
                 {
                   duration_seconds: duration,
+                  duration: duration, // Also save as duration for backward compatibility
                   call_type: 'inbound',
+                  phone_number: activeLead.phone,
                 }
               );
             }
@@ -1145,9 +1193,18 @@ export default function DashboardPage() {
 
         // Calculate call duration and save activity (always save, even if duration is 0)
         if (leadToDial?.id) {
+          const now = new Date();
           const duration = callStartTime
-            ? Math.floor((new Date().getTime() - callStartTime.getTime()) / 1000)
+            ? Math.max(0, Math.floor((now.getTime() - callStartTime.getTime()) / 1000))
             : 0;
+
+          console.log('Saving outbound call terminated activity:', {
+            leadId: leadToDial.id,
+            duration,
+            duration_seconds: duration,
+            callStartTime: callStartTime?.toISOString(),
+            endTime: now.toISOString(),
+          });
 
           saveActivity(
             leadToDial.id,
@@ -1155,6 +1212,7 @@ export default function DashboardPage() {
             `Call ended${duration > 0 ? ` - Duration: ${formatCallDuration(duration)}` : ''}`,
             {
               duration_seconds: duration,
+              duration: duration, // Also save as duration for backward compatibility
               phone_number: leadToDial.phone,
               call_type: 'outbound',
             }
@@ -1921,19 +1979,54 @@ export default function DashboardPage() {
       const userRole = await getCurrentUserRole();
       const { data: { user } } = await supabase.auth.getUser();
       
-      // Build query based on role
-      let leadsQuery = supabase.from("leads").select("id, status, created_at, user_id");
+      // Build count query with filters
+      let countQuery = supabase.from("leads").select("id", { count: 'exact', head: true });
       
-      // If user (not admin), filter by their user_id
       if (userRole === 'user' && user) {
-        leadsQuery = leadsQuery.eq('user_id', user.id);
+        countQuery = countQuery.eq('user_id', user.id);
       }
-      // Admin sees all leads (no filter)
+      if (userRole === 'admin' && selectedUserId) {
+        countQuery = countQuery.eq('user_id', selectedUserId);
+      }
 
-      const { data: leads, error } = await leadsQuery;
-      if (error) throw error;
+      // Get total count using count query (no limit, accurate count)
+      const { count: totalCount, error: countError } = await countQuery;
+      
+      if (countError) throw countError;
+      const total = totalCount || 0;
 
-      const total = leads.length;
+      // Fetch all leads in batches to avoid Supabase's 1000 row limit
+      // This is needed for accurate status breakdowns and daily volume calculations
+      let allLeads: any[] = [];
+      let page = 0;
+      const pageSize = 1000;
+      let hasMore = true;
+
+      while (hasMore) {
+        let batchQuery = supabase.from("leads").select("id, status, created_at, user_id");
+        
+        if (userRole === 'user' && user) {
+          batchQuery = batchQuery.eq('user_id', user.id);
+        }
+        if (userRole === 'admin' && selectedUserId) {
+          batchQuery = batchQuery.eq('user_id', selectedUserId);
+        }
+
+        const { data: batch, error: batchError } = await batchQuery
+          .range(page * pageSize, (page + 1) * pageSize - 1);
+        
+        if (batchError) throw batchError;
+        
+        if (batch && batch.length > 0) {
+          allLeads = [...allLeads, ...batch];
+          hasMore = batch.length === pageSize;
+          page++;
+        } else {
+          hasMore = false;
+        }
+      }
+
+      const leads = allLeads;
       const now = new Date();
 
       // Calculate daily volume for last 7 days
@@ -1968,7 +2061,7 @@ export default function DashboardPage() {
       // 2. Fetch activities for behavioral analytics
       let activitiesQuery = supabase
         .from("lead_activities")
-        .select("created_at, activity_type, metadata, lead_id");
+        .select("created_at, activity_type, metadata, lead_id, created_by");
       
       // If user (not admin), filter activities by their leads
       if (userRole === 'user' && user && leads) {
@@ -1980,7 +2073,10 @@ export default function DashboardPage() {
           activitiesQuery = activitiesQuery.eq('lead_id', '00000000-0000-0000-0000-000000000000'); // Non-existent ID
         }
       }
-      // Admin sees all activities (no filter)
+      // Admin sees all activities, but can filter by selected user
+      if (userRole === 'admin' && selectedUserId) {
+        activitiesQuery = activitiesQuery.eq('created_by', selectedUserId);
+      }
 
       const { data: activities, error: activityError } = await activitiesQuery;
 
@@ -2012,7 +2108,8 @@ export default function DashboardPage() {
               let duration = 0;
               if (act.metadata) {
                 const meta = typeof act.metadata === 'string' ? JSON.parse(act.metadata) : act.metadata;
-                duration = parseInt(meta.duration || 0);
+                // Check both duration_seconds (current) and duration (legacy) for backward compatibility
+                duration = parseInt(meta.duration_seconds || meta.duration || 0);
               }
 
               if (duration > 0) {
@@ -2041,13 +2138,13 @@ export default function DashboardPage() {
     } catch (err) {
       console.error("Error fetching metrics:", err);
     }
-  }, []);
+  }, [selectedUserId]);
 
   useEffect(() => {
     if (activeView === 'overview') {
       fetchDashboardMetrics();
     }
-  }, [activeView, fetchDashboardMetrics]);
+  }, [activeView, fetchDashboardMetrics, selectedUserId]);
 
   // Save activity to database
   const saveActivity = async (leadId: string, activityType: string, description: string, metadata?: any) => {
@@ -2121,6 +2218,8 @@ export default function DashboardPage() {
         description,
         metadata,
         activityData,
+        duration_seconds: metadata?.duration_seconds || metadata?.duration || 'N/A',
+        final_metadata: activityMetadata,
       });
 
       const { data, error } = await supabase
@@ -2350,21 +2449,35 @@ export default function DashboardPage() {
         throw new Error(result.error || 'Failed to submit to IRS Logics');
       }
 
-      console.log('[IRS Logics] Successfully submitted:', result);
+      console.log('[IRS Logics] Successfully submitted with 200 response:', result);
       
-      // Save activity for IRS Logics submission
-      await saveActivity(
-        activeLead.id,
-        'irs_logics_submission',
-        'Lead submitted to IRS Logics',
-        {
-          irs_logics_response: result.data,
-        }
-      );
-
-      // Also update the disposition if "Qualified" is selected
+      // Only save to DB after successful 200 response from IRS Logics API
+      // Update the disposition if "Qualified" is selected
       if (selectedDisposition === 'Qualified') {
+        // Save the qualified disposition change to database
         await handleSubmitDisposition('Qualified', true);
+        
+        // Save activity for qualified status change (this happens inside handleSubmitDisposition)
+        // Also save activity for IRS Logics submission
+        await saveActivity(
+          activeLead.id,
+          'irs_logics_submission',
+          'Lead submitted to IRS Logics',
+          {
+            irs_logics_response: result.data,
+            status: 'Qualified',
+          }
+        );
+      } else {
+        // If not Qualified, just save the IRS Logics submission activity
+        await saveActivity(
+          activeLead.id,
+          'irs_logics_submission',
+          'Lead submitted to IRS Logics',
+          {
+            irs_logics_response: result.data,
+          }
+        );
       }
 
       // Show success message
@@ -2520,61 +2633,9 @@ export default function DashboardPage() {
         await fetchLeadActivities(activeLead.id);
       }
 
-      // If this is from the IRS Logics button, submit to IRS Logics API FIRST
-      if (fromIRSLogicsButton && activeLead) {
-        try {
-          console.log('[IRS Logics] Submitting lead to IRS Logics:', activeLead.id);
-          
-          const response = await fetch('/api/irs-logics', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              first_name: activeLead.first_name,
-              last_name: activeLead.last_name,
-              middle_name: activeLead.middle_name,
-              email: activeLead.email,
-              phone: activeLead.phone,
-              address_line1: activeLead.address_line1,
-              address_line2: activeLead.address_line2,
-              city: activeLead.city,
-              state: activeLead.state,
-              postal_code: activeLead.postal_code,
-              date_of_birth: activeLead.date_of_birth,
-              lead_age: activeLead.lead_age,
-              source: activeLead.source,
-              status: activeLead.status,
-            }),
-          });
-
-          const result = await response.json();
-
-          if (!response.ok || !result.success) {
-            throw new Error(result.error || 'Failed to submit to IRS Logics');
-          }
-
-          console.log('[IRS Logics] Successfully submitted:', result);
-          
-          // Save activity for IRS Logics submission
-          await saveActivity(
-            activeLead.id,
-            'irs_logics_submission',
-            'Lead submitted to IRS Logics',
-            {
-              irs_logics_response: result.data,
-            }
-          );
-
-          // Show success message
-          alert('Lead successfully submitted to IRS Logics!');
-        } catch (error: any) {
-          console.error('[IRS Logics] Error submitting to IRS Logics:', error);
-          alert(`Failed to submit to IRS Logics: ${error.message || 'Unknown error'}`);
-          setIsSubmittingDisposition(false);
-          return; // Stop here if IRS Logics fails
-        }
-      }
+      // Note: IRS Logics submission is now handled separately in handleSubmitToIRSLogics
+      // This function only handles disposition changes to the database
+      // When called with fromIRSLogicsButton=true, it means IRS Logics submission already succeeded
 
       // If power dialing is active, end the call and move to next lead
       // BUT: If the new status is "Qualified" and NOT from IRSLogics button, don't auto-advance - wait for IRSLogics button click
@@ -3322,14 +3383,6 @@ export default function DashboardPage() {
             </button>
 
             <button
-              onClick={() => setActiveView('dialer')}
-              className={`nav-link w-full ${activeView === 'dialer' ? 'active' : ''}`}
-            >
-              <i className="fa-solid fa-headset w-5 flex items-center justify-center"></i>
-              <span>Power Dialer</span>
-            </button>
-
-            <button
               onClick={() => setActiveView('contacts')}
               className={`nav-link w-full ${activeView === 'contacts' ? 'active' : ''}`}
             >
@@ -3337,16 +3390,18 @@ export default function DashboardPage() {
               <span>CRM Contacts</span>
             </button>
 
-            <button
-              onClick={() => {
-                console.log('Settings button clicked, setting activeView to settings');
-                setActiveView('settings');
-              }}
-              className={`nav-link w-full ${activeView === 'settings' ? 'active' : ''}`}
-            >
-              <i className="fa-solid fa-gear w-5 flex items-center justify-center"></i>
-              <span>Settings</span>
-            </button>
+            {userIsAdmin && (
+              <button
+                onClick={() => {
+                  console.log('Settings button clicked, setting activeView to settings');
+                  setActiveView('settings');
+                }}
+                className={`nav-link w-full ${activeView === 'settings' ? 'active' : ''}`}
+              >
+                <i className="fa-solid fa-gear w-5 flex items-center justify-center"></i>
+                <span>Settings</span>
+              </button>
+            )}
 
           </nav>
           {/* <a href="#" className="flex items-center space-x-3 px-3 py-2 text-slate-400 hover:bg-white/5 hover:text-white rounded-xl transition-all">
@@ -3505,11 +3560,35 @@ export default function DashboardPage() {
         {activeView === 'overview' && (
           <main className="flex-1 p-6 lg:p-10 overflow-y-auto bg-[#F8FAFC]">
             <header className="max-w-7xl mx-auto mb-8">
-              <nav className="flex items-center gap-2 mb-3 text-xs font-extrabold uppercase tracking-wide text-slate-400">
-                <span className="text-indigo-600">Integrated Financial</span>
-              </nav>
+              <div className="flex items-start justify-between gap-4 mb-3">
+                <nav className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-wide text-slate-400">
+                  <span className="text-indigo-600">Integrated Financial</span>
+                </nav>
+                {userIsAdmin && (
+                  <div className="flex items-center gap-3">
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">View Stats For:</label>
+                    <select
+                      value={selectedUserId || 'all'}
+                      onChange={(e) => setSelectedUserId(e.target.value === 'all' ? null : e.target.value)}
+                      className="px-4 py-2 rounded-xl bg-white border border-slate-200 text-sm font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 cursor-pointer"
+                    >
+                      <option value="all">All Users</option>
+                      {organizationUsers.map((user) => (
+                        <option key={user.id} value={user.id}>
+                          {user.name || user.email}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
               <h1 className="text-4xl lg:text-5xl font-black tracking-tight text-slate-900 leading-tight mb-2" style={{ letterSpacing: '-0.04em' }}>
                 Dashboard
+                {userIsAdmin && selectedUserId && (
+                  <span className="text-lg font-semibold text-slate-500 ml-3">
+                    - {organizationUsers.find(u => u.id === selectedUserId)?.name || organizationUsers.find(u => u.id === selectedUserId)?.email || 'User'}
+                  </span>
+                )}
               </h1>
               <p className="text-sm lg:text-base text-slate-500 font-medium leading-relaxed max-w-2xl" style={{ letterSpacing: '-0.01em' }}>Real-time operational intelligence & analytics</p>
             </header>
@@ -3518,99 +3597,43 @@ export default function DashboardPage() {
               {/* TOP KPIs */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <MetricCard
-                  title="Total Inventory"
+                  title="Total Leads"
                   value={metrics.totalLeads.toLocaleString()}
-                  subtext="Master distribution index"
+                  subtext="All leads"
                   icon="fa-database"
                   trend={{ value: metrics.growth, positive: metrics.growth >= 0 }}
                   colorClass="bg-indigo-50 text-indigo-600"
                 />
                 <MetricCard
-                  title="New Leads 24H"
+                  title="New Leads Today"
                   value={metrics.todayCount}
-                  subtext="Real-time capture stream"
+                  subtext="Added today"
                   icon="fa-bolt"
                   colorClass="bg-blue-50 text-blue-600"
                 />
                 <MetricCard
-                  title="Interaction KPI"
+                  title="Calls Today"
                   value={metrics.callsToday}
-                  subtext="Daily voice interaction vol."
+                  subtext="Calls made today"
                   icon="fa-headset"
                   colorClass="bg-emerald-50 text-emerald-600"
                 />
                 <MetricCard
-                  title="Mean Engagement"
+                  title="Avg Call Duration"
                   value={metrics.avgDuration > 0 ? `${Math.floor(metrics.avgDuration / 60)}m ${metrics.avgDuration % 60}s` : '0s'}
-                  subtext="Avg session resolution"
+                  subtext="Average call time"
                   icon="fa-clock"
                   colorClass="bg-amber-50 text-amber-600"
                 />
               </div>
 
               {/* ANALYTICS SECTION */}
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
-                <div className="lg:col-span-8">
-                  <VelocityMap data={metrics.dailyVolume} />
-                </div>
-                <div className="lg:col-span-4">
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch pb-8">
+                <div className="lg:col-span-6">
                   <FunnelAnatomy metrics={metrics} />
                 </div>
-              </div>
-
-              {/* OPERATIONAL SECTION */}
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch pb-8">
-                <div className="lg:col-span-7">
+                <div className="lg:col-span-6">
                   <IntelligenceHeatmap data={metrics.activityHeatmap} />
-                </div>
-
-                <div className="lg:col-span-5">
-                  <div className="dashboard-card h-full flex flex-col animate-fade-in" style={{ animationDelay: '0.3s' }}>
-                    <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-                      <div>
-                        <h3 className="text-base font-extrabold text-slate-900 uppercase tracking-wide">Recent Intelligence</h3>
-                        <p className="text-xs text-slate-400 font-semibold uppercase mt-1.5 tracking-wide">Active Capture Stream</p>
-                      </div>
-                      <button
-                        onClick={() => setActiveView('contacts')}
-                        className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 text-slate-400 hover:text-indigo-600 hover:border-indigo-100 transition-all"
-                      >
-                        <i className="fa-solid fa-arrow-up-right text-xs"></i>
-                      </button>
-                    </div>
-
-                    <div className="flex-1 p-6 space-y-3 overflow-y-auto no-scrollbar">
-                      {leads.slice(0, 6).map((lead) => (
-                        <div
-                          key={lead.id}
-                          onClick={() => { setActiveLead(lead); setActiveView('dialer'); }}
-                          className="active-stream-item group cursor-pointer"
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-4">
-                              <div className="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center text-[10px] font-bold text-slate-400 border border-slate-100 group-hover:bg-white group-hover:text-indigo-600 group-hover:shadow-sm transition-all uppercase">
-                                {getInitials(lead.first_name, lead.last_name)}
-                              </div>
-                              <div className="min-w-0">
-                                <p className="text-[13px] font-black text-slate-900 group-hover:text-indigo-600 transition-all uppercase leading-none mb-1">
-                                  {lead.first_name} {lead.last_name}
-                                </p>
-                                <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">
-                                  <i className="fa-solid fa-clock mr-1 text-xs"></i>
-                                  {getTimeAgo(lead.created_at)}
-                                </p>
-                              </div>
-                            </div>
-                            <div className="flex flex-col items-end gap-1.5">
-                              <span className="status-badge bg-slate-50 text-slate-500 border border-slate-100 group-hover:bg-indigo-50 group-hover:text-indigo-600 group-hover:border-indigo-100 transition-all">
-                                {formatStatusForDisplay(lead.status)}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
                 </div>
               </div>
             </div>
@@ -4074,13 +4097,16 @@ export default function DashboardPage() {
                           key={option}
                           onClick={async () => {
                             setSelectedDisposition(option);
+                            if (isQualified) {
+                              // For Qualified: Don't save to DB yet, just set the selection
+                              // User must click "Submit to IRS Logics" to save
+                              return;
+                            }
                             if (isPowerDialing && currentCall && activeLead) {
-                              // In power dialing, auto-submit all dispositions
+                              // In power dialing, auto-submit all dispositions (except Qualified)
                               await handleSubmitDisposition(option);
                             } else if (!isPowerDialing && activeLead) {
-                              // For individual leads: always save disposition
-                              // If Qualified, save but don't show success alert yet (wait for IRSLogics button)
-                              // If not Qualified, save and show success alert immediately
+                              // For individual leads: save disposition immediately (except Qualified)
                               await handleSubmitDisposition(option);
                             }
                           }}
@@ -4747,11 +4773,6 @@ export default function DashboardPage() {
           <main className="flex-1 p-8 lg:p-12 overflow-y-auto bg-[#F8FAFC]" key="settings-view">
             <header className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12">
               <div>
-                <nav className="flex items-center gap-2 mb-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                  <span className="text-indigo-600">Enterprise</span>
-                  <i className="fa-solid fa-chevron-right text-[8px] opacity-30"></i>
-                  <span>Organization Settings</span>
-                </nav>
                 <h1 className="text-4xl font-black tracking-tight text-slate-900 leading-none">
                   Settings <span className="text-indigo-600 italic">Management</span>
                 </h1>
@@ -4909,8 +4930,12 @@ export default function DashboardPage() {
                         <tr>
                           <th className="px-6 py-4 text-left text-xs font-black text-slate-400 uppercase tracking-widest">Name</th>
                           <th className="px-6 py-4 text-left text-xs font-black text-slate-400 uppercase tracking-widest">Email</th>
+                          <th className="px-6 py-4 text-left text-xs font-black text-slate-400 uppercase tracking-widest">Role</th>
                           <th className="px-6 py-4 text-left text-xs font-black text-slate-400 uppercase tracking-widest">Created</th>
                           <th className="px-6 py-4 text-left text-xs font-black text-slate-400 uppercase tracking-widest">Last Sign In</th>
+                          {userIsAdmin && (
+                            <th className="px-6 py-4 text-left text-xs font-black text-slate-400 uppercase tracking-widest">Actions</th>
+                          )}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -4925,12 +4950,42 @@ export default function DashboardPage() {
                               </div>
                             </td>
                             <td className="px-6 py-4 text-sm text-slate-600">{user.email}</td>
+                            <td className="px-6 py-4">
+                              <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold ${
+                                user.role === 'admin' 
+                                  ? 'bg-indigo-100 text-indigo-700' 
+                                  : 'bg-slate-100 text-slate-600'
+                              }`}>
+                                {user.role === 'admin' ? 'Admin' : 'User'}
+                              </span>
+                            </td>
                             <td className="px-6 py-4 text-xs text-slate-400">
                               {new Date(user.created_at).toLocaleDateString()}
                             </td>
                             <td className="px-6 py-4 text-xs text-slate-400">
                               {user.last_sign_in_at ? new Date(user.last_sign_in_at).toLocaleDateString() : 'Never'}
                             </td>
+                            {userIsAdmin && (
+                              <td className="px-6 py-4">
+                                <button
+                                  onClick={() => deleteUser(user.id)}
+                                  disabled={deletingUserId === user.id}
+                                  className="px-3 py-1.5 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 text-xs font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                                >
+                                  {deletingUserId === user.id ? (
+                                    <>
+                                      <i className="fa-solid fa-circle-notch fa-spin"></i>
+                                      Deleting...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <i className="fa-solid fa-trash"></i>
+                                      Delete
+                                    </>
+                                  )}
+                                </button>
+                              </td>
+                            )}
                           </tr>
                         ))}
                       </tbody>
