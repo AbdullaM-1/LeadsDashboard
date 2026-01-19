@@ -1362,78 +1362,11 @@ export default function DashboardPage() {
 
         leadsToDial = selectedLeadsData || [];
       } else {
-        // No leads selected - apply status filter as primary filter
-        let query = supabase.from('leads').select('*');
-
-        // Apply status filter - this is the PRIMARY filter that determines what gets dialed
-        if (statusFilter !== 'All') {
-          const statusesToMatch = STATUS_QUERY_MAP[statusFilter] ?? [statusFilter];
-          if (statusesToMatch.length === 1) {
-            query = query.eq('status', statusesToMatch[0]);
-          } else if (statusesToMatch.length > 1) {
-            query = query.in('status', statusesToMatch);
-          }
-        }
-
-        // Apply date filter if set
-        if (dateFilterMode === 'today') {
-          const { start, end } = getDayRange(new Date());
-          query = query.gte('created_at', start).lt('created_at', end);
-        } else if (dateFilterMode === 'last3') {
-          const end = new Date();
-          const start = new Date();
-          start.setDate(start.getDate() - 3);
-          query = query.gte('created_at', start.toISOString()).lte('created_at', end.toISOString());
-        } else if (dateFilterMode === 'week') {
-          const { start, end } = getLastNDaysRange(7);
-          query = query.gte('created_at', start).lt('created_at', end);
-        } else if (dateFilterMode === 'month') {
-          const start = new Date();
-          start.setDate(1);
-          start.setHours(0, 0, 0, 0);
-          const end = new Date(start);
-          end.setMonth(end.getMonth() + 1);
-          query = query.gte('created_at', start.toISOString()).lt('created_at', end.toISOString());
-        } else if (dateFilterMode === 'date' && selectedDate) {
-          const { start, end } = getDayRange(new Date(selectedDate));
-          query = query.gte('created_at', start).lt('created_at', end);
-        } else if (dateFilterMode === 'customMonth' && selectedMonth) {
-          const { start, end } = getMonthRange(selectedMonth);
-          query = query.gte('created_at', start).lt('created_at', end);
-        }
-
-        // Apply view mode filter
-        if (viewMode === 'untouched') {
-          const processedList = PROCESSED_STATUS_DB_VALUES.map((status) =>
-            `"${status.replace(/"/g, '\\"')}"`
-          ).join(',');
-          if (processedList) {
-            query = query.not('status', 'in', `(${processedList})`);
-          }
-        }
-
-        // Fetch all matching leads (not just current page)
-        let allFilteredLeads: Lead[] = [];
-        let page = 1;
-        let hasMore = true;
-
-        while (hasMore) {
-          const pageFrom = (page - 1) * 1000;
-          const pageTo = pageFrom + 999;
-
-          const pageQuery = query.range(pageFrom, pageTo).order('created_at', { ascending: false });
-          const { data, error } = await pageQuery;
-
-          if (error) throw error;
-
-          const pageLeads = data || [];
-          allFilteredLeads = [...allFilteredLeads, ...pageLeads];
-
-          hasMore = pageLeads.length === 1000;
-          page++;
-        }
-
-        leadsToDial = allFilteredLeads;
+        // No leads selected - use only the leads currently visible on the page (viewport)
+        // This ensures power dialer only dials what the user can see
+        leadsToDial = leads;
+        
+        console.log('Power dialer - Using current page leads (viewport only):', leadsToDial.length, 'leads');
       }
 
       // Filter leads with phone numbers
@@ -2315,45 +2248,15 @@ export default function DashboardPage() {
   };
 
   // Calculate eligible leads count for power dialing
-  // This should reflect the actual count of leads matching the current status filter
+  // Only count leads that are currently visible on the page (viewport)
   const eligiblePowerDialCount = useMemo(() => {
-    // When status filter is active, use totalLeads which is updated by fetchLeads
-    if (statusFilter !== 'All') {
-      // If we have all filtered leads on current page, count directly for immediate accuracy
-      if (leads.length < itemsPerPage && leads.length > 0) {
-        // Verify all leads match the filter and count them
-        const statusesToMatch = STATUS_QUERY_MAP[statusFilter] ?? [statusFilter];
-        const matchingLeads = leads.filter(lead =>
-          statusesToMatch.includes(lead.status || '')
-        );
-        // Use the direct count if it's available, otherwise fall back to totalLeads
-        return matchingLeads.length > 0 ? matchingLeads.length : totalLeads;
-      }
-
-      // For paginated results, use totalLeads which should be accurate
-      // fetchLeads updates it when statusFilter changes via useEffect
-      return totalLeads;
-    }
-
-    // For "All" status, estimate from current page
+    // Only count leads from the current page/viewport that have phone numbers
     const leadsWithPhoneOnPage = leads.filter(lead =>
       lead.phone && lead.phone.trim()
     ).length;
 
-    // If we have all leads on current page, count directly
-    if (leads.length < itemsPerPage && leads.length > 0) {
-      return leadsWithPhoneOnPage;
-    }
-
-    // For paginated "All" results, estimate based on ratio
-    if (leads.length > 0 && totalLeads > 0) {
-      const phoneRatio = leadsWithPhoneOnPage / leads.length;
-      return Math.round(totalLeads * phoneRatio);
-    }
-
-    // Fallback: use totalLeads
-    return totalLeads;
-  }, [leads, totalLeads, itemsPerPage, statusFilter]);
+    return leadsWithPhoneOnPage;
+  }, [leads]);
 
   const toggleLeadSelection = (leadId: string) => {
     const newSelected = new Set(selectedLeads);
@@ -5343,96 +5246,6 @@ export default function DashboardPage() {
         )
       }
 
-      {/* Active Call Popup - Shows across all screens when call is active */}
-      {currentCall && (
-        <div className="active-call-popup">
-          <div className="glass-modal max-w-md w-[calc(100vw-2rem)] p-5 shadow-2xl border-2 border-indigo-200/50">
-            <div className="flex items-center gap-4">
-              {/* Call Icon & Status */}
-              <div className="flex-shrink-0">
-                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
-                  <i className="fa-solid fa-phone text-white text-xl"></i>
-                </div>
-                {callStartTime && (
-                  <div className="mt-1.5 flex items-center justify-center">
-                    <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
-                  </div>
-                )}
-              </div>
-
-              {/* Call Info */}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <h4 className="text-base font-black text-slate-900 truncate">
-                    {activeLead 
-                      ? `${activeLead.first_name || ''} ${activeLead.last_name || ''}`.trim() || 'Unknown Contact'
-                      : 'Active Call'}
-                  </h4>
-                  {callStartTime && (
-                    <span className="px-2 py-0.5 bg-emerald-50 text-emerald-600 text-[10px] font-black uppercase rounded-md border border-emerald-200">
-                      Live
-                    </span>
-                  )}
-                </div>
-                <p className="text-sm font-semibold text-slate-500 truncate">
-                  {activeLead?.phone || 'Calling...'}
-                </p>
-                {callStartTime && callDuration > 0 && (
-                  <p className="text-xs font-bold text-indigo-600 mt-1">
-                    {formatCallDuration(callDuration)}
-                  </p>
-                )}
-              </div>
-
-              {/* Call Controls */}
-              <div className="flex items-center gap-2 flex-shrink-0">
-                {/* Mute/Unmute Button */}
-                <button
-                  onClick={() => {
-                    if (currentCall) {
-                      try {
-                        if (isMuted) {
-                          currentCall.unmute();
-                          setIsMuted(false);
-                        } else {
-                          currentCall.mute();
-                          setIsMuted(true);
-                        }
-                      } catch (error) {
-                        console.error('Error toggling mute:', error);
-                      }
-                    }
-                  }}
-                  className="w-10 h-10 rounded-xl bg-slate-100 hover:bg-slate-200 flex items-center justify-center transition-colors"
-                  title={isMuted ? 'Unmute' : 'Mute'}
-                >
-                  <i className={`fa-solid text-base ${isMuted ? 'fa-microphone-slash text-rose-500' : 'fa-microphone text-slate-600'}`}></i>
-                </button>
-
-                {/* Hangup Button */}
-                <button
-                  onClick={() => {
-                    if (currentCall) {
-                      try {
-                        currentCall.bye();
-                        setCurrentCall(null);
-                        currentCallRef.current = null;
-                        setCallStartTime(null);
-                      } catch (error) {
-                        console.error('Error hanging up:', error);
-                      }
-                    }
-                  }}
-                  className="w-12 h-12 rounded-xl bg-red-500 hover:bg-red-600 flex items-center justify-center shadow-lg shadow-red-500/30 transition-all hover:scale-105"
-                  title="End Call"
-                >
-                  <i className="fa-solid fa-phone-slash text-white text-lg"></i>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }
