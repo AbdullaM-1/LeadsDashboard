@@ -8,6 +8,7 @@ import Papa from 'papaparse';
 import WebPhone from '@/lib/ringcentral-webphone';
 import { SDK } from '@ringcentral/sdk';
 import Chart from 'chart.js/auto';
+import { toast } from 'sonner';
 
 interface Lead {
   id: string;
@@ -717,7 +718,7 @@ function CallRecordingDisplay({
                 // Get the current session token
                 const { data: { session } } = await supabase.auth.getSession();
                 if (!session) {
-                  alert('Please log in to fetch recordings.');
+                  toast.error('Please log in to fetch recordings.');
                   setLoading(false);
                   return;
                 }
@@ -790,7 +791,7 @@ function CallRecordingDisplay({
                     const errorText = await response.text();
                     console.error('Failed to fetch by call log ID:', response.status, errorText);
                     setLoading(false);
-                    alert(`Failed to fetch recording: ${response.statusText}`);
+                    toast.error(`Failed to fetch recording: ${response.statusText}`);
                   }
                 } else {
                   // Fallback to fetching recent calls
@@ -857,13 +858,13 @@ function CallRecordingDisplay({
                     const errorText = await response.text();
                     console.error('Failed to fetch recordings:', response.status, errorText);
                     setLoading(false);
-                    alert(`Failed to fetch recordings: ${response.statusText}. Please check your RingCentral credentials.`);
+                    toast.error(`Failed to fetch recordings: ${response.statusText}. Please check your RingCentral credentials.`);
                   }
                 }
               } catch (error) {
                 console.error('Error fetching recordings:', error);
                 setLoading(false);
-                alert('Error fetching recordings. Please try again later.');
+                toast.error('Error fetching recordings. Please try again later.');
               }
             }}
             className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-1.5"
@@ -1168,6 +1169,28 @@ export default function DashboardPage() {
   // Ref to track current active lead ID (for use in closures to prevent race conditions)
   const activeLeadIdRef = useRef<string | null>(null);
 
+  // Confirmation Modal State
+  const [confirmationModal, setConfirmationModal] = useState<{
+    show: boolean;
+    message: string;
+    onConfirm: () => void;
+    onCancel?: () => void;
+  }>({
+    show: false,
+    message: '',
+    onConfirm: () => {},
+  });
+
+  // Helper function to show confirmation modal
+  const showConfirmation = useCallback((message: string, onConfirm: () => void, onCancel?: () => void) => {
+    setConfirmationModal({
+      show: true,
+      message,
+      onConfirm,
+      onCancel,
+    });
+  }, []);
+
   // Overview Metrics State
   const [metrics, setMetrics] = useState({
     totalLeads: 0,
@@ -1313,14 +1336,25 @@ export default function DashboardPage() {
       });
 
       if (error) {
-        console.error('[Admin Check] Error fetching profile:', error);
-        console.error('[Admin Check] Error code:', error.code);
-        console.error('[Admin Check] Error message:', error.message);
+        // Only log error details, don't show empty object
+        if (error.message || error.code) {
+          console.error('[Admin Check] Error fetching profile:', {
+            code: error.code,
+            message: error.message,
+            details: error.details,
+            hint: error.hint
+          });
+        }
         
         // If it's an RLS error, log it specifically
         if (error.code === '42501' || error.message?.includes('permission') || error.message?.includes('policy')) {
           console.error('[Admin Check] RLS POLICY ERROR - User cannot read their own profile!');
           console.error('[Admin Check] This means the RLS policy "Users can view their own profile" is not working.');
+        }
+        
+        // If profile doesn't exist, that's okay - user is not admin
+        if (error.code === 'PGRST116') {
+          console.log('[Admin Check] Profile not found - user is not admin');
         }
         
         setUserIsAdmin(false);
@@ -1417,7 +1451,7 @@ export default function DashboardPage() {
       console.log('Users fetched successfully:', data.users?.length || 0);
     } catch (error: any) {
       console.error('Error fetching users:', error);
-      alert(error.message || 'Failed to fetch users. Please check console for details.');
+      toast.error(error.message || 'Failed to fetch users. Please check console for details.');
     } finally {
       setIsLoadingUsers(false);
     }
@@ -1425,43 +1459,45 @@ export default function DashboardPage() {
 
   // Delete user function
   const deleteUser = useCallback(async (userId: string) => {
-    if (!confirm('Are you sure you want to delete this user? This action cannot be undone.')) {
-      return;
-    }
+    showConfirmation(
+      'Are you sure you want to delete this user? This action cannot be undone.',
+      async () => {
+        setDeletingUserId(userId);
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session) {
+            toast.error('You must be logged in to delete users');
+            setDeletingUserId(null);
+            return;
+          }
 
-    setDeletingUserId(userId);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        alert('You must be logged in to delete users');
-        return;
+          const response = await fetch('/api/users/delete', {
+            method: 'DELETE',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({ userId }),
+          });
+
+          const data = await response.json();
+
+          if (!response.ok) {
+            throw new Error(data.error || 'Failed to delete user');
+          }
+
+          // Refresh the users list
+          await fetchUsers();
+          toast.success('User deleted successfully');
+        } catch (error: any) {
+          console.error('Error deleting user:', error);
+          toast.error(error.message || 'Failed to delete user');
+        } finally {
+          setDeletingUserId(null);
+        }
       }
-
-      const response = await fetch('/api/users/delete', {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ userId }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to delete user');
-      }
-
-      // Refresh the users list
-      await fetchUsers();
-      alert('User deleted successfully');
-    } catch (error: any) {
-      console.error('Error deleting user:', error);
-      alert(error.message || 'Failed to delete user');
-    } finally {
-      setDeletingUserId(null);
-    }
-  }, [fetchUsers]);
+    );
+  }, [fetchUsers, showConfirmation]);
 
   // Fetch users when settings view is active or when admin is on overview
   useEffect(() => {
@@ -1551,16 +1587,17 @@ export default function DashboardPage() {
         type: 'rc-adapter-register-service',
         service: 'RcAdapter',
       }, '*');
-      alert('Please wait for the dialer to fully load and try again in a few seconds.');
+      toast.warning('Please wait for the dialer to fully load and try again in a few seconds.');
       return;
     }
 
-    if (!confirm('This will download all recordings and voicemails (last 90 days) directly from RingCentral. Continue?')) return;
+    showConfirmation(
+      'This will download all recordings and voicemails (last 90 days) directly from RingCentral. Continue?',
+      async () => {
+        setIsDownloadingRecordings(true);
+        setDownloadProgress('Starting...');
 
-    setIsDownloadingRecordings(true);
-    setDownloadProgress('Starting...');
-
-    try {
+        try {
       const dateFrom = new Date();
       dateFrom.setDate(dateFrom.getDate() - 90);
       const dateFromIso = dateFrom.toISOString();
@@ -1582,7 +1619,7 @@ export default function DashboardPage() {
 
       const totalItems = recordings.length + voicemails.length;
       if (totalItems === 0) {
-        alert('No recordings or voicemails found.');
+        toast.info('No recordings or voicemails found.');
         setIsDownloadingRecordings(false);
         return;
       }
@@ -1636,11 +1673,13 @@ export default function DashboardPage() {
       setDownloadProgress('Done!');
       setTimeout(() => setIsDownloadingRecordings(false), 2000);
 
-    } catch (error) {
-      console.error('Download error:', error);
-      alert('An error occurred during download.');
-      setIsDownloadingRecordings(false);
-    }
+        } catch (error) {
+          console.error('Download error:', error);
+          toast.error('An error occurred during download.');
+          setIsDownloadingRecordings(false);
+        }
+      }
+    );
   };
 
   /*
@@ -2024,7 +2063,7 @@ export default function DashboardPage() {
   // Start Power Dialing - dial all leads sequentially
   const startPowerDialing = useCallback(async (leadsOverride?: Lead[]) => {
     if (!webPhone || !webPhoneReady) {
-      alert('WebPhone is not ready. Please wait for initialization.');
+      toast.warning('WebPhone is not ready. Please wait for initialization.');
       return;
     }
 
@@ -2146,15 +2185,15 @@ export default function DashboardPage() {
 
       if (leadsWithPhone.length === 0) {
         if (leadsOverride && leadsOverride.length > 0) {
-          alert('No selected leads have phone numbers.');
+          toast.error('No selected leads have phone numbers.');
         } else if (selectedLeads.size > 0) {
-          alert('No selected leads have phone numbers.');
+          toast.error('No selected leads have phone numbers.');
         } else {
           // Provide more helpful error message
           if (leadsToDial.length === 0) {
-            alert(`No leads found. Please make sure you're viewing leads in the contacts view and that leads are loaded.`);
+            toast.error(`No leads found. Please make sure you're viewing leads in the contacts view and that leads are loaded.`);
           } else {
-            alert(`None of the ${leadsToDial.length} lead(s) on this page have phone numbers. Please check your leads data.`);
+            toast.error(`None of the ${leadsToDial.length} lead(s) on this page have phone numbers. Please check your leads data.`);
           }
         }
         setLoading(false);
@@ -2200,7 +2239,7 @@ export default function DashboardPage() {
             // Ensure video elements are accessible
             if (!remoteVideoRef.current || !localVideoRef.current) {
               console.error('Video elements not available');
-              alert('Media elements not ready. Please refresh the page.');
+              toast.error('Media elements not ready. Please refresh the page.');
               return;
             }
 
@@ -2308,7 +2347,7 @@ export default function DashboardPage() {
 
     } catch (error: any) {
       console.error('Failed to fetch leads for power dialing:', error);
-      alert('Failed to start power dialing. Please try again.');
+      toast.error('Failed to start power dialing. Please try again.');
       setLoading(false);
     }
   }, [webPhone, webPhoneReady, isPowerDialing, currentCall, selectedLeads, statusFilter, dateFilterMode, selectedDate, selectedMonth, viewMode, leads, activeView]);
@@ -2506,7 +2545,7 @@ export default function DashboardPage() {
           powerDialingQueueSnapshotRef.current = [];
           isManuallyAdvancingRef.current = false; // Clear the flag
           setWebPhoneStatus('Power dialing complete');
-          alert(`Power dialing complete! Dialed ${totalDialed} leads.`);
+          toast.success(`Power dialing complete! Dialed ${totalDialed} leads.`);
         }
       }, 3000); // Wait 3 seconds after call ends before next dial
 
@@ -3172,12 +3211,12 @@ export default function DashboardPage() {
 
   const handleSubmitToIRSLogics = async () => {
     if (!activeLead) {
-      alert('Please select a lead first.');
+      toast.warning('Please select a lead first.');
       return;
     }
 
     if (hasBeenSubmittedToIRSLogics) {
-      alert('This lead has already been submitted to IRS Logics.');
+      toast.warning('This lead has already been submitted to IRS Logics.');
       return;
     }
 
@@ -3251,10 +3290,10 @@ export default function DashboardPage() {
       }
 
       // Show success message
-      alert('Lead successfully submitted to IRS Logics!');
+      toast.success('Lead successfully submitted to IRS Logics!');
     } catch (error: any) {
       console.error('[IRS Logics] Error submitting to IRS Logics:', error);
-      alert(`Failed to submit to IRS Logics: ${error.message || 'Unknown error'}`);
+      toast.error(`Failed to submit to IRS Logics: ${error.message || 'Unknown error'}`);
     } finally {
       setIsSubmittingDisposition(false);
     }
@@ -3265,7 +3304,7 @@ export default function DashboardPage() {
 
     const dispositionToUse = overrideDisposition || selectedDisposition;
     if (!dispositionToUse || dispositionToUse.trim() === '') {
-      alert('Please select a disposition before submitting.');
+      toast.warning('Please select a disposition before submitting.');
       return;
     }
 
@@ -3288,7 +3327,7 @@ export default function DashboardPage() {
       if (!statusChanged && !(fromIRSLogicsButton && isPowerDialing)) {
         // If status hasn't changed and it's not from IRSLogics button during power dialing, show alert
         if (!fromIRSLogicsButton) {
-          alert('Status is already set to this value.');
+          toast.info('Status is already set to this value.');
         }
         // If it's from IRSLogics button during power dialing and status hasn't changed,
         // we still want to proceed to move to next call, so don't return here
@@ -3614,7 +3653,7 @@ export default function DashboardPage() {
             powerDialingQueueSnapshotRef.current = [];
             isManuallyAdvancingRef.current = false; // Clear the flag
             setWebPhoneStatus('Power dialing complete');
-            alert(`Power dialing complete! Dialed ${totalDialed} leads.`);
+            toast.success(`Power dialing complete! Dialed ${totalDialed} leads.`);
           }
         } catch (error: any) {
           console.error('Error ending call in power dialer:', error);
@@ -3628,13 +3667,13 @@ export default function DashboardPage() {
         // If Qualified was just selected, don't show alert yet - wait for IRSLogics button
         const isQualifiedStatus = statusToSave === 'Qualified' || statusToSave === 'Qualified Lead';
         if (!isQualifiedStatus || fromIRSLogicsButton) {
-          alert('Disposition saved successfully!');
+          toast.success('Disposition saved successfully!');
         }
         // If Qualified and not from IRSLogics button, don't show alert - IRSLogics button will handle it
       }
     } catch (err) {
       console.error('Failed to update disposition:', err);
-      alert('Failed to update disposition. Please try again.');
+      toast.error('Failed to update disposition. Please try again.');
     } finally {
       setIsSubmittingDisposition(false);
     }
@@ -3663,7 +3702,7 @@ export default function DashboardPage() {
       if (normalizedPhone) {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) {
-          alert('You must be logged in to create leads.');
+          toast.error('You must be logged in to create leads.');
           setIsCreatingLead(false);
           return;
         }
@@ -3708,12 +3747,8 @@ export default function DashboardPage() {
             return existingNormalized && existingNormalized === normalizedPhone;
           });
 
-          alert(
-            `This lead already exists in your database!\n\n` +
-            `Existing lead: ${duplicateLead?.first_name} ${duplicateLead?.last_name}\n` +
-            `Phone: ${duplicateLead?.phone}\n` +
-            `Email: ${duplicateLead?.email || 'N/A'}\n\n` +
-            `Leads are identified by phone number. If the phone number is different, the lead will be added.`
+          toast.warning(
+            `This lead already exists! Existing: ${duplicateLead?.first_name} ${duplicateLead?.last_name} (${duplicateLead?.phone}). Leads are identified by phone number.`
           );
           setIsCreatingLead(false);
           return;
@@ -3739,10 +3774,10 @@ export default function DashboardPage() {
       setShowLeadModal(false);
       resetPaginationState();
       await fetchLeads();
-      alert('Lead created successfully!');
+      toast.success('Lead created successfully!');
     } catch (err) {
       console.error('Failed to create lead:', err);
-      alert('Failed to create lead. Please try again.');
+      toast.error('Failed to create lead. Please try again.');
     } finally {
       setIsCreatingLead(false);
     }
@@ -3789,7 +3824,7 @@ export default function DashboardPage() {
             data: { user },
           } = await supabase.auth.getUser();
           if (!user) {
-            alert('You must be logged in to upload leads.');
+            toast.error('You must be logged in to upload leads.');
             setIsImporting(false);
             return;
           }
@@ -3926,11 +3961,11 @@ export default function DashboardPage() {
 
             // Show success message with details
             if (duplicateLeadsList.length > 0 && newLeads.length > 0) {
-              alert(`Successfully imported ${newLeads.length} new leads. ${duplicateLeadsList.length} duplicate lead(s) were skipped (see details in popup).`);
+              toast.success(`Successfully imported ${newLeads.length} new leads. ${duplicateLeadsList.length} duplicate lead(s) were skipped (see details in popup).`);
             } else if (duplicateLeadsList.length > 0 && newLeads.length === 0) {
-              alert(`All ${duplicateLeadsList.length} lead(s) were duplicates. No new leads were imported (see details in popup).`);
+              toast.info(`All ${duplicateLeadsList.length} lead(s) were duplicates. No new leads were imported (see details in popup).`);
             } else {
-              alert(`Successfully imported ${newLeads.length} leads!`);
+              toast.success(`Successfully imported ${newLeads.length} leads!`);
             }
 
             resetPaginationState();
@@ -3945,7 +3980,7 @@ export default function DashboardPage() {
             const { error } = await supabase.from('leads').insert(parsedLeads);
             if (error) throw error;
 
-            alert(`Successfully imported ${parsedLeads.length} leads!`);
+            toast.success(`Successfully imported ${parsedLeads.length} leads!`);
             resetPaginationState();
             await fetchLeads();
             resetImportModal();
@@ -3966,13 +4001,12 @@ export default function DashboardPage() {
   };
 
   const handleBulkDelete = async () => {
-    if (!confirm(`Are you sure you want to delete leads with status: ${deleteStatusFilter}? This action cannot be undone.`)) {
-      return;
-    }
-
-    setIsDeleting(true);
-    try {
-      let query = supabase.from('leads').delete();
+    showConfirmation(
+      `Are you sure you want to delete leads with status: ${deleteStatusFilter}? This action cannot be undone.`,
+      async () => {
+        setIsDeleting(true);
+        try {
+          let query = supabase.from('leads').delete();
 
       if (deleteStatusFilter !== 'All') {
         const statusesToDelete = STATUS_QUERY_MAP[deleteStatusFilter] ?? [deleteStatusFilter];
@@ -3986,20 +4020,22 @@ export default function DashboardPage() {
         query = query.neq('id', '00000000-0000-0000-0000-000000000000');
       }
 
-      const { error } = await query;
-      if (error) throw error;
+          const { error } = await query;
+          if (error) throw error;
 
-      setShowDeleteModal(false);
-      setDeleteStatusFilter('All');
-      resetPaginationState();
-      await fetchLeads();
-      alert('Leads deleted successfully');
-    } catch (err) {
-      console.error('Error deleting leads:', err);
-      alert('Failed to delete leads');
-    } finally {
-      setIsDeleting(false);
-    }
+          setShowDeleteModal(false);
+          setDeleteStatusFilter('All');
+          resetPaginationState();
+          await fetchLeads();
+          toast.success('Leads deleted successfully');
+        } catch (err) {
+          console.error('Error deleting leads:', err);
+          toast.error('Failed to delete leads');
+        } finally {
+          setIsDeleting(false);
+        }
+      }
+    );
   };
 
   const updateLeadInState = (updatedLead: Lead) => {
@@ -4031,7 +4067,7 @@ export default function DashboardPage() {
       setShowTagInput(false);
     } catch (err) {
       console.error('Failed to add tag:', err);
-      alert('Failed to add tag. Please try again.');
+      toast.error('Failed to add tag. Please try again.');
     } finally {
       setIsTagSaving(false);
     }
@@ -4055,7 +4091,7 @@ export default function DashboardPage() {
       updateLeadInState({ ...activeLead, tags: updatedTags });
     } catch (err) {
       console.error('Failed to remove tag:', err);
-      alert('Failed to remove tag. Please try again.');
+      toast.error('Failed to remove tag. Please try again.');
     } finally {
       setIsTagSaving(false);
     }
@@ -4124,6 +4160,53 @@ export default function DashboardPage() {
 
   return (
     <>
+      {/* Confirmation Modal */}
+      {confirmationModal.show && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
+          {/* Backdrop */}
+          <div 
+            className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            onClick={() => setConfirmationModal({ ...confirmationModal, show: false })}
+          ></div>
+          
+          {/* Modal */}
+          <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 transform transition-all">
+            <div className="flex items-start gap-4 mb-6">
+              <div className="flex-shrink-0 w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
+                <i className="fa-solid fa-exclamation-triangle text-red-600 text-xl"></i>
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-bold text-slate-900 mb-2">Confirm Action</h3>
+                <p className="text-sm text-slate-600">{confirmationModal.message}</p>
+              </div>
+            </div>
+            
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => {
+                  setConfirmationModal({ ...confirmationModal, show: false });
+                  if (confirmationModal.onCancel) {
+                    confirmationModal.onCancel();
+                  }
+                }}
+                className="px-6 py-2.5 rounded-xl text-sm font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  setConfirmationModal({ ...confirmationModal, show: false });
+                  await confirmationModal.onConfirm();
+                }}
+                className="px-6 py-2.5 rounded-xl text-sm font-semibold text-white bg-red-600 hover:bg-red-700 transition-colors"
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="bg-[#F8FAFC] text-slate-900 h-screen overflow-hidden flex" style={{ 
         fontFamily: "var(--font-geist-sans), 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
         WebkitFontSmoothing: 'antialiased',
@@ -4505,7 +4588,7 @@ export default function DashboardPage() {
                   router.push('/login');
                 } catch (error) {
                   console.error('Error signing out:', error);
-                  alert('Failed to sign out. Please try again.');
+                  toast.error('Failed to sign out. Please try again.');
                 }
               }}
               className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-red-400 hover:text-red-300 hover:bg-red-500/10 border border-red-500/20 transition-all hover:border-red-500/40 hover:shadow-lg hover:shadow-red-500/10"
@@ -5687,11 +5770,11 @@ export default function DashboardPage() {
                             }
                             startPowerDialing(data);
                           } else {
-                            alert('No leads found for selected IDs');
+                            toast.warning('No leads found for selected IDs');
                           }
                         } catch (err) {
                           console.error('Error starting power dial for selected:', err);
-                          alert('Failed to start power dial');
+                          toast.error('Failed to start power dial');
                         } finally {
                           setLoading(false);
                         }
@@ -5702,20 +5785,25 @@ export default function DashboardPage() {
                     </button>
                     <button
                       onClick={async () => {
-                        if (confirm(`Are you sure you want to delete ${selectedLeads.size} leads?`)) {
-                          setLoading(true);
-                          try {
-                            const { error } = await supabase.from('leads').delete().in('id', Array.from(selectedLeads));
-                            if (error) throw error;
-                            setSelectedLeads(new Set());
-                            await fetchLeads();
-                          } catch (err) {
-                            console.error('Error deleting leads:', err);
-                            alert('Failed to delete leads');
-                          } finally {
-                            setLoading(false);
+                        const leadCount = selectedLeads.size;
+                        showConfirmation(
+                          `Are you sure you want to delete ${leadCount} lead${leadCount === 1 ? '' : 's'}?`,
+                          async () => {
+                            setLoading(true);
+                            try {
+                              const { error } = await supabase.from('leads').delete().in('id', Array.from(selectedLeads));
+                              if (error) throw error;
+                              setSelectedLeads(new Set());
+                              await fetchLeads();
+                              toast.success(`Successfully deleted ${leadCount} lead${leadCount === 1 ? '' : 's'}`);
+                            } catch (err) {
+                              console.error('Error deleting leads:', err);
+                              toast.error('Failed to delete leads');
+                            } finally {
+                              setLoading(false);
+                            }
                           }
-                        }
+                        );
                       }}
                       className="text-xs font-bold hover:text-red-400 transition-colors flex items-center gap-2"
                     >
@@ -5753,7 +5841,7 @@ export default function DashboardPage() {
                     onSubmit={async (e) => {
                       e.preventDefault();
                       if (!newUser.email || !newUser.password) {
-                        alert('Please fill in email and password');
+                        toast.warning('Please fill in email and password');
                         return;
                       }
 
@@ -5780,13 +5868,13 @@ export default function DashboardPage() {
                           throw new Error(data.error || 'Failed to create user');
                         }
 
-                        alert('User created successfully!');
+                        toast.success('User created successfully!');
                         setNewUser({ email: '', password: '', name: '', role: 'user' });
                         // Refresh users list
                         await fetchUsers();
                       } catch (error: any) {
                         console.error('Error creating user:', error);
-                        alert(error.message || 'Failed to create user');
+                        toast.error(error.message || 'Failed to create user');
                       } finally {
                         setIsCreatingUser(false);
                       }
