@@ -89,94 +89,108 @@ export default function LoginPage() {
         }
         .animate-float { animation: float-slow 6s ease-in-out infinite; }
       `}</style>
-      
+
       <div className="grain"></div>
       <div className="mesh-leak"></div>
 
       <div className="w-full max-w-[440px] relative">
         {/* Background Glow behind the card */}
         <div className="absolute -inset-10 bg-indigo-500/5 blur-[100px] rounded-full"></div>
-        
+
         {/* Main Auth Panel */}
         <div className="auth-panel rounded-[3rem] p-10 lg:p-12 relative animate-float">
-            
-            {/* Branding */}
-            <div className="flex flex-col items-center mb-10">
-                <div className="h-14 w-14 bg-black rounded-2xl flex items-center justify-center text-white shadow-2xl mb-6">
-                    <i className="fa-solid fa-square-rss text-2xl"></i>
-                </div>
-                <h1 className="text-2xl font-black tracking-tighter uppercase italic text-center">Integrated <span className="text-indigo-600">Financials</span></h1>
-                <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] mt-2">Custom CRM</p>
+
+          {/* Branding */}
+          <div className="flex flex-col items-center mb-10">
+            <div className="h-14 w-14 bg-black rounded-2xl flex items-center justify-center text-white shadow-2xl mb-6">
+              <i className="fa-solid fa-wave-square text-2xl leading-none"></i>
+            </div>
+            <h1 className="text-2xl font-black tracking-tighter uppercase italic text-center">Integrated <span className="text-indigo-600">Financials</span></h1>
+            <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] mt-2">Custom CRM</p>
+          </div>
+
+          {/* Error Message */}
+          {error && (
+            <div className="mb-6 p-3 bg-red-50 border border-red-100 rounded-xl text-red-600 text-xs font-bold text-center">
+              {error}
+            </div>
+          )}
+
+          {/* Login Form */}
+          <form onSubmit={handleLogin} className="space-y-6">
+            <div>
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Email</label>
+              <div className="relative">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none flex items-center justify-center">
+                  <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4 w-4">
+                    <path
+                      fill="currentColor"
+                      d="M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2Zm0 2v.01L12 13 4 6.01V6h16ZM4 18V8.24l7.4 6.17a1 1 0 0 0 1.2 0L20 8.24V18H4Z"
+                    />
+                  </svg>
+                </span>
+                <input
+                  type="email"
+                  placeholder="name@company.com"
+                  className="glass-input w-full rounded-2xl py-4 !pl-14 pr-4 text-sm font-semibold text-slate-900 placeholder:text-slate-300"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                />
+              </div>
             </div>
 
-            {/* Error Message */}
-            {error && (
-              <div className="mb-6 p-3 bg-red-50 border border-red-100 rounded-xl text-red-600 text-xs font-bold text-center">
-                {error}
+            <div>
+              <div className="flex justify-between items-center ml-1 mb-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Password</label>
+                <a href="#" className="text-[10px] font-black text-indigo-600 uppercase tracking-widest hover:underline">Forgot?</a>
               </div>
-            )}
+              <div className="relative">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none flex items-center justify-center">
+                  <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4 w-4">
+                    <path
+                      fill="currentColor"
+                      d="M17 9h-1V7a4 4 0 1 0-8 0v2H7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2Zm-7-2a2 2 0 1 1 4 0v2h-4V7Zm7 11H7v-7h10v7Z"
+                    />
+                  </svg>
+                </span>
+                <input
+                  type="password"
+                  placeholder="••••••••"
+                  className="glass-input w-full rounded-2xl py-4 !pl-14 pr-4 text-sm font-semibold text-slate-900 placeholder:text-slate-300"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                />
+              </div>
+            </div>
 
-            {/* Login Form */}
-            <form onSubmit={handleLogin} className="space-y-6">
-                <div>
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Email</label>
-                    <div className="relative">
-                        <i className="fa-solid fa-envelope absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 text-xs"></i>
-                        <input 
-                          type="email" 
-                          placeholder="name@company.com" 
-                          className="glass-input w-full rounded-2xl py-4 pl-11 pr-4 text-sm font-semibold text-slate-900 placeholder:text-slate-300"
-                          value={email}
-                          onChange={(e) => setEmail(e.target.value)}
-                          required
-                        />
-                    </div>
-                </div>
-
-                <div>
-                    <div className="flex justify-between items-center ml-1 mb-2">
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Password</label>
-                        <a href="#" className="text-[10px] font-black text-indigo-600 uppercase tracking-widest hover:underline">Forgot?</a>
-                    </div>
-                    <div className="relative">
-                        <i className="fa-solid fa-lock absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 text-xs"></i>
-                        <input 
-                          type="password" 
-                          placeholder="••••••••" 
-                          className="glass-input w-full rounded-2xl py-4 pl-11 pr-4 text-sm font-semibold text-slate-900 placeholder:text-slate-300"
-                          value={password}
-                          onChange={(e) => setPassword(e.target.value)}
-                          required
-                        />
-                    </div>
-                </div>
-
-                {/* <div className="flex items-center gap-3 px-1">
+            {/* <div className="flex items-center gap-3 px-1">
                     <input type="checkbox" id="remember" className="w-4 h-4 rounded-md border-slate-200 text-indigo-600 focus:ring-indigo-500" />
                     <label htmlFor="remember" className="text-xs font-bold text-slate-500 cursor-pointer">Persist session on this device</label>
                 </div> */}
 
-                <button 
-                  type="submit" 
-                  disabled={loading}
-                  className="w-full bg-black text-white rounded-2xl py-4 text-[11px] font-black uppercase tracking-[0.2em] shadow-2xl shadow-indigo-100 hover:scale-[1.02] active:scale-95 transition-all duration-300 disabled:opacity-70 disabled:cursor-not-allowed flex justify-center items-center"
-                >
-                  {loading ? (
-                    <i className="fa-solid fa-circle-notch fa-spin"></i>
-                  ) : (
-                    'Login'
-                  )}
-                </button>
-            </form>
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-black text-white rounded-2xl py-4 text-[11px] font-black uppercase tracking-[0.2em] shadow-2xl shadow-indigo-100 hover:scale-[1.02] active:scale-95 transition-all duration-300 disabled:opacity-70 disabled:cursor-not-allowed flex justify-center items-center"
+            >
+              {loading ? (
+                <i className="fa-solid fa-circle-notch fa-spin"></i>
+              ) : (
+                'Login'
+              )}
+            </button>
+          </form>
 
-            {/* Social/Other Auth */}
-            <div className="mt-10">
-                <div className="relative mb-8">
-                    <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-100"></div></div>
-                    <div className="relative flex justify-center text-[10px] font-black uppercase"><span className="bg-white px-4 text-slate-300 tracking-widest"></span></div>
-                </div>
+          {/* Social/Other Auth */}
+          <div className="mt-10">
+            <div className="relative mb-8">
+              <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-100"></div></div>
+              <div className="relative flex justify-center text-[10px] font-black uppercase"><span className="bg-white px-4 text-slate-300 tracking-widest"></span></div>
+            </div>
 
-                {/* <div className="grid grid-cols-2 gap-4">
+            {/* <div className="grid grid-cols-2 gap-4">
                     <button type="button" className="flex items-center justify-center gap-3 bg-white border border-slate-100 rounded-2xl py-3 hover:bg-slate-50 transition-colors">
                         <i className="fa-brands fa-google text-slate-400"></i>
                         <span className="text-[10px] font-bold text-slate-600">Google</span>
@@ -186,12 +200,12 @@ export default function LoginPage() {
                         <span className="text-[10px] font-bold text-slate-600">Apple</span>
                     </button>
                 </div> */}
-            </div>
+          </div>
         </div>
 
         {/* Footer link */}
         <p className="text-center mt-10 text-xs font-bold text-slate-400 uppercase tracking-widest">
-            New node? <a href="#" className="text-indigo-600 hover:underline">Request Credentials</a>
+          New node? <a href="#" className="text-indigo-600 hover:underline">Request Credentials</a>
         </p>
       </div>
     </div>

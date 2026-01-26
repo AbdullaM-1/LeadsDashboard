@@ -16,6 +16,11 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Integrated Financial",
   description: "Operational overview for pipeline health and team workload",
+  icons: {
+    icon: "/ifs-logo.png",
+    shortcut: "/ifs-logo.png",
+    apple: "/ifs-logo.png",
+  },
 };
 
 export default function RootLayout({

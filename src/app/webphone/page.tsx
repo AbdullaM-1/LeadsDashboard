@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import WebPhone from '@/lib/ringcentral-webphone';
 import { SDK } from '@ringcentral/sdk';
 
+const INITIALIZATION_FAILURE_MESSAGE = 'Initialization failed. Please refresh the page.';
+
 export default function WebPhonePage() {
   const [webPhone, setWebPhone] = useState<WebPhone | null>(null);
   const [isReady, setIsReady] = useState(false);
@@ -21,7 +23,8 @@ export default function WebPhonePage() {
         const jwt = process.env.NEXT_PUBLIC_RC_JWT;
 
         if (!clientId || !clientSecret || !jwt) {
-          setStatus('Error: RingCentral credentials not configured. Please set NEXT_PUBLIC_RC_CLIENT_ID, NEXT_PUBLIC_RC_CLIENT_SECRET, and NEXT_PUBLIC_RC_JWT in your environment variables.');
+          console.error('RingCentral credentials not configured');
+          setStatus(INITIALIZATION_FAILURE_MESSAGE);
           return;
         }
 
@@ -55,13 +58,7 @@ export default function WebPhonePage() {
           console.log('Login successful!');
         } catch (loginError: any) {
           console.error('Login error details:', loginError);
-          const errorMessage = loginError.message || loginError.msg || 'Unknown error';
-          setStatus(`Login failed: ${errorMessage}`);
-          
-          // Check if it's a JWT parsing error
-          if (errorMessage.includes('assertion') || errorMessage.includes('JWT') || errorMessage.includes('parse')) {
-            setStatus(`JWT Error: The token may be expired or invalid. Please generate a new JWT from RingCentral Developer Console.`);
-          }
+          setStatus(INITIALIZATION_FAILURE_MESSAGE);
           return;
         }
 
@@ -81,7 +78,8 @@ export default function WebPhonePage() {
           clientId: process.env.NEXT_PUBLIC_RC_CLIENT_ID || 'your-client-id',
           appName: 'LeadsDashboard',
           appVersion: '1.0.0',
-          logLevel: 2,
+          logLevel: 0,
+          builtinEnabled: false,
           media: {
             remote: remoteVideoRef.current!,
             local: localVideoRef.current!,
@@ -136,7 +134,7 @@ export default function WebPhonePage() {
 
       } catch (error: any) {
         console.error('Failed to initialize WebPhone:', error);
-        setStatus(`Initialization Error: ${error.message}`);
+        setStatus(INITIALIZATION_FAILURE_MESSAGE);
       }
     }
 

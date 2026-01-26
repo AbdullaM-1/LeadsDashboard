@@ -151,6 +151,8 @@ const formatStatusForDisplay = (status?: string | null) => {
   return getDisplayStatusFromDb(status);
 };
 
+const INITIALIZATION_FAILURE_MESSAGE = 'Initialization failed. Please refresh the page.';
+
 // --- Call Intelligence Modal Component ---
 function CallIntelligenceModal({
   recording,
@@ -626,252 +628,6 @@ function CallRecordingDisplay({
       {!loading && !recording && phoneNumber && (
         <div className="text-xs text-slate-500 italic mt-2 space-y-2">
           <p>No recording found. Transcripts are available after calls are processed by RingSense.</p>
-          <button
-            onClick={async () => {
-              setLoading(true);
-              // Force refresh by re-running the fetch logic
-              const activityTime = new Date(activity.created_at);
-              const timeWindowStart = new Date(activityTime.getTime() - 30 * 60 * 1000); // 30 minutes before
-              const timeWindowEnd = new Date(activityTime.getTime() + 30 * 60 * 1000); // 30 minutes after
-              
-              try {
-                // Try all strategies again
-                let data = null;
-                
-                // By call_id
-                if (metadata?.call_log_id || metadata?.call_id) {
-                  const callId = metadata.call_log_id || metadata.call_id;
-                  const { data: callIdData } = await supabase
-                    .from('call_recordings')
-                    .select('*')
-                    .eq('call_id', callId)
-                    .order('created_at', { ascending: false })
-                    .limit(1)
-                    .maybeSingle();
-                  if (callIdData) data = callIdData;
-                }
-                
-                // By record_id
-                if (!data && metadata?.record_id) {
-                  const { data: recordData } = await supabase
-                    .from('call_recordings')
-                    .select('*')
-                    .eq('record_id', metadata.record_id)
-                    .maybeSingle();
-                  if (recordData) data = recordData;
-                }
-                
-                // By phone and time
-                if (!data) {
-                  const normalizedPhone = phoneNumber.replace(/\D/g, '');
-                  const { data: phoneData } = await supabase
-                    .from('call_recordings')
-                    .select('*')
-                    .or(`from_number.ilike.%${normalizedPhone}%,to_number.ilike.%${normalizedPhone}%`)
-                    .gte('start_time', timeWindowStart.toISOString())
-                    .lte('start_time', timeWindowEnd.toISOString())
-                    .order('start_time', { ascending: false })
-                    .limit(1);
-                  if (phoneData && phoneData.length > 0) data = phoneData[0];
-                }
-                
-                // Get most recent if still nothing
-                if (!data) {
-                  const { data: recentData } = await supabase
-                    .from('call_recordings')
-                    .select('*')
-                    .order('created_at', { ascending: false })
-                    .limit(10);
-                  
-                  if (recentData && recentData.length > 0) {
-                    const normalizedPhone = phoneNumber.replace(/\D/g, '');
-                    const match = recentData.find((r: any) => {
-                      const fromMatch = r.from_number?.replace(/\D/g, '') === normalizedPhone;
-                      const toMatch = r.to_number?.replace(/\D/g, '') === normalizedPhone;
-                      return fromMatch || toMatch;
-                    });
-                    if (match) data = match;
-                  }
-                }
-                
-                if (data) {
-                  setRecording(data);
-                  console.log('Recording found on refresh:', data.id);
-                } else {
-                  console.log('Still no recording found after refresh');
-                }
-              } catch (error) {
-                console.error('Error refreshing:', error);
-              } finally {
-                setLoading(false);
-              }
-            }}
-            className="text-xs bg-slate-600 text-white px-3 py-1.5 rounded-lg hover:bg-slate-700 transition-colors flex items-center gap-1.5 mt-2"
-          >
-            <i className="fa-solid fa-sync"></i>
-            Refresh
-          </button>
-          <button
-            onClick={async () => {
-              setLoading(true);
-              try {
-                // Get the current session token
-                const { data: { session } } = await supabase.auth.getSession();
-                if (!session) {
-                  toast.error('Please log in to fetch recordings.');
-                  setLoading(false);
-                  return;
-                }
-
-                // First check if recording already exists in DB
-                let existingData = null;
-                
-                // Check by call_log_id first
-                if (metadata?.call_log_id || metadata?.call_id) {
-                  const callId = metadata.call_log_id || metadata.call_id;
-                  const { data: callIdData } = await supabase
-                    .from('call_recordings')
-                    .select('*')
-                    .eq('call_id', callId)
-                    .order('created_at', { ascending: false })
-                    .limit(1)
-                    .maybeSingle();
-                  if (callIdData && callIdData.transcription) {
-                    existingData = callIdData;
-                  }
-                }
-                
-                // If found in DB with transcript, use it
-                if (existingData) {
-                  console.log('Recording found in DB, using cached version');
-                  setRecording(existingData);
-                  setLoading(false);
-                  return;
-                }
-                
-                // Not in DB or missing transcript, fetch from API
-                // If we have a call log ID, use it to fetch the specific call
-                if (metadata?.call_log_id) {
-                  const response = await fetch('/api/ringsense/insights', {
-                    method: 'POST',
-                    headers: {
-                      'Content-Type': 'application/json',
-                      'Authorization': `Bearer ${session.access_token}`,
-                    },
-                    body: JSON.stringify({
-                      callLogId: metadata.call_log_id,
-                    }),
-                  });
-                  
-                  if (response.ok) {
-                    const result = await response.json();
-                    console.log('Fetch result by call log ID:', result);
-                    
-                    // Refresh the recording after a short delay
-                    setTimeout(async () => {
-                      try {
-                        const { data: newData } = await supabase
-                          .from('call_recordings')
-                          .select('*')
-                          .eq('call_id', metadata.call_log_id)
-                          .order('created_at', { ascending: false })
-                          .limit(1)
-                          .maybeSingle();
-                        
-                        if (newData) {
-                          setRecording(newData);
-                        }
-                      } catch (error) {
-                        console.error('Error refreshing recording:', error);
-                      } finally {
-                        setLoading(false);
-                      }
-                    }, 2000);
-                  } else {
-                    const errorText = await response.text();
-                    console.error('Failed to fetch by call log ID:', response.status, errorText);
-                    setLoading(false);
-                    toast.error(`Failed to fetch recording: ${response.statusText}`);
-                  }
-                } else {
-                  // Fallback to fetching recent calls
-                  const response = await fetch('/api/ringsense/insights?perPage=10&limit=1', {
-                    method: 'GET',
-                    headers: {
-                      'Content-Type': 'application/json',
-                      'Authorization': `Bearer ${session.access_token}`,
-                    },
-                  });
-                  
-                  if (response.ok) {
-                    const result = await response.json();
-                    console.log('Fetch result:', result);
-                    
-                    // Refresh the recording after a short delay
-                    setTimeout(() => {
-                      const fetchRecording = async () => {
-                        try {
-                          const activityTime = new Date(activity.created_at);
-                          const timeWindowStart = new Date(activityTime.getTime() - 5 * 60 * 1000);
-                          const timeWindowEnd = new Date(activityTime.getTime() + 5 * 60 * 1000);
-
-                          let data = null;
-                          
-                          if (metadata?.record_id) {
-                            const { data: recordData } = await supabase
-                              .from('call_recordings')
-                              .select('*')
-                              .eq('record_id', metadata.record_id)
-                              .single();
-                            data = recordData;
-                          }
-                          
-                          if (!data) {
-                            const { data: phoneData } = await supabase
-                              .from('call_recordings')
-                              .select('*')
-                              .or(`from_number.eq.${phoneNumber},to_number.eq.${phoneNumber}`)
-                              .gte('start_time', timeWindowStart.toISOString())
-                              .lte('start_time', timeWindowEnd.toISOString())
-                              .order('start_time', { ascending: false })
-                              .limit(1);
-                            
-                            if (phoneData && phoneData.length > 0) {
-                              data = phoneData[0];
-                            }
-                          }
-
-                          if (data) {
-                            setRecording(data);
-                          } else {
-                            console.log('No recording found after fetch');
-                          }
-                        } catch (error) {
-                          console.error('Error refreshing recording:', error);
-                        } finally {
-                          setLoading(false);
-                        }
-                      };
-                      fetchRecording();
-                    }, 2000);
-                  } else {
-                    const errorText = await response.text();
-                    console.error('Failed to fetch recordings:', response.status, errorText);
-                    setLoading(false);
-                    toast.error(`Failed to fetch recordings: ${response.statusText}. Please check your RingCentral credentials.`);
-                  }
-                }
-              } catch (error) {
-                console.error('Error fetching recordings:', error);
-                setLoading(false);
-                toast.error('Error fetching recordings. Please try again later.');
-              }
-            }}
-            className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-1.5"
-          >
-            <i className="fa-solid fa-refresh"></i>
-            Fetch Recording
-          </button>
         </div>
       )}
     </div>
@@ -1754,7 +1510,8 @@ export default function DashboardPage() {
           clientId,
           appName: 'LeadsDashboard',
           appVersion: '1.0.0',
-          logLevel: 1, // Reduced logging for production
+          logLevel: 0, // Reduced logging for production
+          builtinEnabled: false,
           media: {
             remote: remoteVideoRef.current,
             local: localVideoRef.current,
@@ -1862,7 +1619,7 @@ export default function DashboardPage() {
 
       } catch (error: any) {
         console.error('Failed to initialize WebPhone:', error);
-        setWebPhoneStatus(`Error: ${error.message || 'Initialization failed'}`);
+        setWebPhoneStatus(INITIALIZATION_FAILURE_MESSAGE);
       }
     }
 
@@ -4582,14 +4339,16 @@ export default function DashboardPage() {
           {/* Logout Button - Bottom of Sidebar */}
           <div className="mt-auto p-4 border-t border-white/10 bg-slate-900/50">
             <button
-              onClick={async () => {
-                try {
-                  await supabase.auth.signOut();
-                  router.push('/login');
-                } catch (error) {
-                  console.error('Error signing out:', error);
-                  toast.error('Failed to sign out. Please try again.');
-                }
+              onClick={() => {
+                showConfirmation('Are you sure you want to log out?', async () => {
+                  try {
+                    await supabase.auth.signOut();
+                    router.push('/login');
+                  } catch (error) {
+                    console.error('Error signing out:', error);
+                    toast.error('Failed to sign out. Please try again.');
+                  }
+                });
               }}
               className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-red-400 hover:text-red-300 hover:bg-red-500/10 border border-red-500/20 transition-all hover:border-red-500/40 hover:shadow-lg hover:shadow-red-500/10"
             >
