@@ -924,6 +924,7 @@ export default function DashboardPage() {
   const [isMuted, setIsMuted] = useState(false);
   // Ref to track current active lead ID (for use in closures to prevent race conditions)
   const activeLeadIdRef = useRef<string | null>(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   // Confirmation Modal State
   const [confirmationModal, setConfirmationModal] = useState<{
@@ -946,6 +947,12 @@ export default function DashboardPage() {
       onCancel,
     });
   }, []);
+
+  // Qualification Details State
+  const [qualificationTaxDebt, setQualificationTaxDebt] = useState<string>('');
+  const [qualificationTaxYear, setQualificationTaxYear] = useState<string>('');
+  const [qualificationTaxType, setQualificationTaxType] = useState<string>('');
+  const [qualificationUnspecified, setQualificationUnspecified] = useState<boolean>(false);
 
   // Overview Metrics State
   const [metrics, setMetrics] = useState({
@@ -3096,23 +3103,65 @@ export default function DashboardPage() {
 
       // Update lead status only if it changed
       if (statusChanged) {
+        const updates: any = { status: statusToSave };
+        
+        // If status is "Qualified", save qualification details
+        if (statusToSave === 'Qualified' || statusToSave === 'Qualified Lead') {
+          // Only save if unspecified is NOT checked or if fields are filled
+          // If unspecified is checked, we might want to clear or save a flag, 
+          // but typically "Unspecified" means "skip details" so we do nothing or clear them.
+          // However, if the user fills them, we save them.
+          
+          if (!qualificationUnspecified) {
+             if (qualificationTaxDebt) updates.estimated_debt = parseFloat(qualificationTaxDebt);
+             if (qualificationTaxYear) updates.unfiled_years = qualificationTaxYear.split(',').map(s => s.trim()).filter(s => s);
+             // We can't save tax_type as it's not in the DB schema yet.
+             // We'll save it in tags for now as a workaround since we can't migrate DB easily here.
+             // Or we just ignore it for DB but keep it in state/UI.
+             // User said "saved in db".
+             // Let's check if we can leverage the 'tags' column to store "TaxType:Federal" etc.
+             if (qualificationTaxType) {
+                // Fetch current tags first to append
+                const currentTags = activeLead.tags || [];
+                const taxTypeTagPrefix = 'TaxType:';
+                // Remove existing tax type tags
+                const newTags = currentTags.filter(t => !t.startsWith(taxTypeTagPrefix));
+                newTags.push(`${taxTypeTagPrefix}${qualificationTaxType}`);
+                updates.tags = newTags;
+             }
+          }
+        }
+
         const { error } = await supabase
           .from('leads')
-          .update({ status: statusToSave })
+          .update(updates)
           .eq('id', activeLead.id);
         if (error) throw error;
 
         // Save activity for disposition change (only if status changed)
+        const activityMetadata: any = {
+          old_status: oldStatus,
+          new_status: statusToSave,
+          old_status_display: formatStatusForDisplay(oldStatus),
+          new_status_display: formatStatusForDisplay(statusToSave),
+        };
+
+        // If qualified, add qualification details to metadata
+        if (statusToSave === 'Qualified' || statusToSave === 'Qualified Lead') {
+           if (!qualificationUnspecified) {
+              if (qualificationTaxDebt) activityMetadata.estimated_debt = qualificationTaxDebt;
+              if (qualificationTaxYear) activityMetadata.unfiled_years = qualificationTaxYear;
+              if (qualificationTaxType) activityMetadata.tax_type = qualificationTaxType;
+           } else {
+              activityMetadata.qualification_unspecified = true;
+           }
+        }
+
         await saveActivity(
           activeLead.id,
           'disposition_change',
           `Status changed from "${formatStatusForDisplay(oldStatus)}" to "${formatStatusForDisplay(statusToSave)}"`,
-          {
-            old_status: oldStatus,
-            new_status: statusToSave,
-            old_status_display: formatStatusForDisplay(oldStatus),
-            new_status_display: formatStatusForDisplay(statusToSave),
-          }
+          activityMetadata
         );
 
         // Update local state
@@ -4149,18 +4198,32 @@ export default function DashboardPage() {
           style={{ display: 'none', position: 'absolute', width: '1px', height: '1px', top: '-9999px' }}
         />
 
+        {/* Mobile Sidebar Overlay */}
+        {isSidebarOpen && (
+          <div 
+            className="fixed inset-0 bg-slate-900/50 z-40 lg:hidden backdrop-blur-sm"
+            onClick={() => setIsSidebarOpen(false)}
+          ></div>
+        )}
+
         {/* 1. LEFT NAVIGATION (SLIMMER & MORE MODERN) */}
-        <aside className="w-64 bg-gradient-to-b from-slate-950 to-slate-900 text-white flex flex-col shrink-0 border-r border-white/10 shadow-xl">
+        <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-gradient-to-b from-slate-950 to-slate-900 text-white flex flex-col shrink-0 border-r border-white/10 shadow-xl transform transition-transform duration-300 lg:translate-x-0 lg:static lg:inset-auto ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
           <div className="h-20 flex items-center px-6 mb-6 border-b border-white/5">
             <div className="flex items-baseline gap-1.5">
               <span className="font-black tracking-tight text-base leading-tight" style={{ letterSpacing: '-0.01em' }}>Integrated</span>
               <span className="font-bold text-blue-400 text-base tracking-tight" style={{ letterSpacing: '-0.01em' }}>Financial</span>
             </div>
+            <button 
+              onClick={() => setIsSidebarOpen(false)}
+              className="ml-auto lg:hidden text-slate-400 hover:text-white"
+            >
+              <i className="fa-solid fa-times"></i>
+            </button>
           </div>
 
           <nav className="px-3 space-y-1">
             <button
-              onClick={() => setActiveView('overview')}
+              onClick={() => { setActiveView('overview'); setIsSidebarOpen(false); }}
               className={`nav-link w-full ${activeView === 'overview' ? 'active' : ''}`}
             >
               <i className="fa-solid fa-house-chimney w-5 flex items-center justify-center"></i>
@@ -4168,7 +4231,7 @@ export default function DashboardPage() {
             </button>
 
             <button
-              onClick={() => setActiveView('contacts')}
+              onClick={() => { setActiveView('contacts'); setIsSidebarOpen(false); }}
               className={`nav-link w-full ${activeView === 'contacts' ? 'active' : ''}`}
             >
               <i className="fa-solid fa-users w-5 flex items-center justify-center"></i>
@@ -4177,7 +4240,7 @@ export default function DashboardPage() {
 
             {hasOpenedContact && (
               <button
-                onClick={() => setActiveView('dialer')}
+                onClick={() => { setActiveView('dialer'); setIsSidebarOpen(false); }}
                 className={`nav-link w-full ${activeView === 'dialer' ? 'active' : ''}`}
               >
                 <i className="fa-solid fa-bolt w-5 flex items-center justify-center"></i>
@@ -4190,6 +4253,7 @@ export default function DashboardPage() {
                 onClick={() => {
                   console.log('Settings button clicked, setting activeView to settings');
                   setActiveView('settings');
+                  setIsSidebarOpen(false);
                 }}
                 className={`nav-link w-full ${activeView === 'settings' ? 'active' : ''}`}
               >
@@ -4364,6 +4428,12 @@ export default function DashboardPage() {
             <header className="max-w-7xl mx-auto mb-8">
               <div className="flex items-start justify-between gap-4 mb-3">
                 <nav className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-wide text-slate-400">
+                  <button 
+                    onClick={() => setIsSidebarOpen(true)}
+                    className="lg:hidden mr-2 text-slate-600 hover:text-slate-900"
+                  >
+                    <i className="fa-solid fa-bars text-lg"></i>
+                  </button>
                   <span className="text-indigo-600">Integrated Financial</span>
                 </nav>
                 {userIsAdmin && (
@@ -4448,9 +4518,15 @@ export default function DashboardPage() {
             <>
               {/* 2. MAIN LEAD AREA */}
               <main className="flex-1 flex flex-col bg-white overflow-hidden">
-                {/* Modern Header */}
-                <header className="h-20 border-b border-slate-100 bg-white/50 backdrop-blur-sm flex items-center justify-between px-8 shrink-0 shadow-sm">
+                {/* Modern Header - Hidden on mobile in Dialer view to give more space to call widget */}
+                <header className="h-20 border-b border-slate-100 bg-white/50 backdrop-blur-sm hidden lg:flex items-center justify-between px-4 lg:px-8 shrink-0 shadow-sm">
                   <div className="flex items-center gap-5">
+                    <button 
+                      onClick={() => setIsSidebarOpen(true)}
+                      className="lg:hidden text-slate-600 hover:text-slate-900"
+                    >
+                      <i className="fa-solid fa-bars text-lg"></i>
+                    </button>
                     <div className="relative">
                       <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-blue-200/50 ring-2 ring-blue-100">
                         {getInitials(activeLead?.first_name || '', activeLead?.last_name || '')}
@@ -4459,7 +4535,7 @@ export default function DashboardPage() {
                     <i className="fa-brands fa-facebook text-blue-600 text-[10px]"></i>
                   </div> */}
                     </div>
-                    <div>
+                    <div className="hidden sm:block">
                       <h1 className="text-xl font-bold text-slate-900 tracking-tight">
                         {activeLead ? `${activeLead.first_name} ${activeLead.last_name}` : 'Select a Lead'}
                       </h1>
@@ -4484,15 +4560,17 @@ export default function DashboardPage() {
                         title="Stop Power Dialer"
                       >
                         <i className="fa-solid fa-stop"></i>
-                        <span>Stop Power Dialer</span>
+                        <span className="hidden sm:inline">Stop Power Dialer</span>
                       </button>
                     )}
                   </div>
                 </header>
 
-                <div className="flex-1 flex overflow-hidden">
-                  {/* Details Column */}
-                  <div className="w-[380px] p-8 overflow-y-auto border-r border-slate-50">
+                <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative lg:static">
+                  {/* Mobile Call Widget Overlay - REMOVED (Merged into Right Panel) */}
+                  
+                  {/* Details Column - Hidden on mobile when using dialer view as full screen right panel handles it */}
+                  <div className="hidden lg:block w-full lg:w-[380px] p-4 lg:p-8 overflow-y-auto border-b lg:border-b-0 lg:border-r border-slate-50 max-h-[40vh] lg:max-h-none">
                     <section className="mb-8">
                       <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-6">Primary Information</h3>
                       <div className="space-y-6">
@@ -4613,8 +4691,8 @@ export default function DashboardPage() {
                     </section>
                   </div>
 
-                  {/* Timeline Column */}
-                  <div className="flex-1 bg-slate-50/50 p-8 overflow-y-auto relative">
+                  {/* Timeline Column - Hidden on mobile when using dialer view as full screen right panel handles it */}
+                  <div className="hidden lg:block flex-1 bg-slate-50/50 p-8 overflow-y-auto relative">
                     <div className="max-w-2xl mx-auto">
                       <h3 className="text-[11px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-8">Lead Activity Timeline</h3>
 
@@ -4709,7 +4787,7 @@ export default function DashboardPage() {
                                       {/* Status change details */}
                                       {activity.activity_type === 'disposition_change' && (
                                         <div className="bg-green-50 rounded-lg p-3 border border-green-100 mt-3">
-                                          <div className="flex items-center gap-2 text-xs">
+                                          <div className="flex items-center gap-2 text-xs mb-2">
                                             <span className="text-slate-500">From:</span>
                                             <span className="px-2 py-0.5 rounded bg-white border border-green-200 text-green-700 font-semibold">
                                               {metadata?.old_status_display || metadata?.old_status || 'Unknown'}
@@ -4719,6 +4797,37 @@ export default function DashboardPage() {
                                               {metadata?.new_status_display || metadata?.new_status || 'Unknown'}
                                             </span>
                                           </div>
+                                          
+                                          {/* Show Qualification Details if present */}
+                                          {(metadata?.estimated_debt || metadata?.unfiled_years || metadata?.tax_type || metadata?.qualification_unspecified) && (
+                                            <div className="mt-3 pt-3 border-t border-green-200/50">
+                                              <p className="text-[10px] font-bold text-green-800 uppercase tracking-wider mb-2">Qualification Details</p>
+                                              {metadata.qualification_unspecified ? (
+                                                <span className="text-xs text-green-700 italic">Unspecified</span>
+                                              ) : (
+                                                <div className="grid grid-cols-2 gap-2 text-xs">
+                                                  {metadata.estimated_debt && (
+                                                    <div>
+                                                      <span className="text-green-600 block text-[10px] uppercase">Tax Debt</span>
+                                                      <span className="font-semibold text-green-900">${parseFloat(metadata.estimated_debt).toLocaleString()}</span>
+                                                    </div>
+                                                  )}
+                                                  {metadata.unfiled_years && (
+                                                    <div>
+                                                      <span className="text-green-600 block text-[10px] uppercase">Tax Year(s)</span>
+                                                      <span className="font-semibold text-green-900">{metadata.unfiled_years}</span>
+                                                    </div>
+                                                  )}
+                                                  {metadata.tax_type && (
+                                                    <div className="col-span-2">
+                                                      <span className="text-green-600 block text-[10px] uppercase">Tax Type</span>
+                                                      <span className="font-semibold text-green-900">{metadata.tax_type}</span>
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              )}
+                                            </div>
+                                          )}
                                         </div>
                                       )}
                                     </div>
@@ -4739,10 +4848,27 @@ export default function DashboardPage() {
                 </div>
               </main>
 
-              {/* 3. RIGHT PANEL (THE ENGINE) */}
-              <aside className="w-[400px] bg-white border-l border-slate-100 flex flex-col">
+              {/* 3. RIGHT PANEL (THE ENGINE) - Mobile Full Screen */}
+              <aside className={`
+                w-full lg:w-[400px] bg-white border-l border-slate-100 flex flex-col
+                fixed inset-0 z-50 lg:static lg:z-auto
+                transform transition-transform duration-300
+                ${isSidebarOpen ? 'translate-x-full lg:translate-x-0' : 'translate-x-0'}
+                lg:translate-x-0
+              `}>
+                {/* Mobile Header for Right Panel */}
+                <div className="lg:hidden h-14 border-b border-slate-100 flex items-center justify-between px-4 bg-white shrink-0">
+                   <h3 className="font-bold text-slate-900">Dialer</h3>
+                   <button 
+                     onClick={() => setActiveView('contacts')}
+                     className="text-slate-500 hover:text-slate-900 p-2"
+                   >
+                     <i className="fa-solid fa-times text-lg"></i>
+                   </button>
+                </div>
+
                 {/* Dialer UI */}
-                <div className="bg-[#1E293B] shadow-inner h-[400px] overflow-hidden relative flex flex-col">
+                <div className="bg-[#1E293B] shadow-inner h-[400px] lg:h-[400px] shrink-0 overflow-hidden relative flex flex-col">
                   {/* Video elements are now at root level for WebPhone initialization */}
 
 
@@ -4882,7 +5008,7 @@ export default function DashboardPage() {
                 </div>
 
                 {/* Dispositions */}
-                <div className="flex-1 overflow-y-auto p-6 bg-slate-50/30">
+                <div className="flex-1 overflow-y-auto p-6 bg-slate-50/30 pb-24 lg:pb-6">
                   <div className="mb-6">
                     <h4 className="text-sm font-bold text-slate-900 mb-1">Select Outcome <span className="text-red-500">*</span></h4>
                     <p className="text-[11px] text-slate-500">You must disposition this lead to move to the next item in queue.</p>
@@ -4898,6 +5024,22 @@ export default function DashboardPage() {
                           onClick={async () => {
                             setSelectedDisposition(option);
                             if (isQualified) {
+                              // Check validation if not unspecified
+                              if (!qualificationUnspecified) {
+                                if (!qualificationTaxDebt && !qualificationTaxYear && !qualificationTaxType) {
+                                   // If "require details" means at least one:
+                                   // toast.warning('Please enter at least one qualification detail or check "Unspecified".');
+                                   // But prompt said: "user can also also add one detail while skipping other one"
+                                   // "else require details" -> maybe it implies if unspecified is unchecked, AT LEAST ONE detail is required?
+                                   // Let's assume loose validation (optional fields) but warn if ALL empty?
+                                   // Actually, "require details" usually implies mandatory.
+                                   // Let's try: if Unspecified is FALSE, show toast if ALL are empty.
+                                   if (!qualificationTaxDebt && !qualificationTaxYear && !qualificationTaxType) {
+                                      toast.warning('Please fill in qualification details or check "Unspecified".');
+                                      return;
+                                   }
+                                }
+                              }
                               // For Qualified: Don't save to DB yet, just set the selection
                               // User must click "Submit to IRS Logics" to save
                               return;
@@ -4921,39 +5063,76 @@ export default function DashboardPage() {
                     })}
                   </div>
 
-                  {/* Qualification Form */}
-                  <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-                    <div className="flex items-center gap-2 mb-5 border-b border-slate-50 pb-4">
-                      <div className="w-7 h-7 bg-green-50 rounded-lg flex items-center justify-center text-green-600">
-                        <i className="fa-solid fa-check-to-slot text-xs"></i>
-                      </div>
-                      <h5 className="font-bold text-sm">Qualification Details</h5>
-                    </div>
-
-                    <div className="space-y-4">
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">Estimated Debt</label>
-                        <select className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-blue-100 outline-none appearance-none cursor-pointer">
-                          <option>$10,000 - $25,000</option>
-                          <option>$25,000 - $50,000</option>
-                          <option>$50,000+</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">Unfiled Years</label>
-                        <input type="text" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm outline-none focus:ring-2 focus:ring-blue-100" defaultValue="2018, 2019, 2021" />
+                    {/* Qualification Form */}
+                    <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+                      <div className="flex items-center gap-2 mb-5 border-b border-slate-50 pb-4">
+                        <div className="w-7 h-7 bg-green-50 rounded-lg flex items-center justify-center text-green-600">
+                          <i className="fa-solid fa-check-to-slot text-xs"></i>
+                        </div>
+                        <h5 className="font-bold text-sm">Qualification Details</h5>
+                        <div className="ml-auto">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={qualificationUnspecified}
+                              onChange={(e) => setQualificationUnspecified(e.target.checked)}
+                              className="rounded text-green-600 border-slate-300 checkbox-custom h-4 w-4"
+                            />
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Unspecified</span>
+                          </label>
+                        </div>
                       </div>
 
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">Monthly Income</label>
-                        <div className="relative">
-                          <span className="absolute left-4 top-3.5 text-slate-400 text-sm font-bold">$</span>
-                          <input type="number" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 pl-8 text-sm outline-none focus:ring-2 focus:ring-blue-100" defaultValue="4500" />
+                      <div className={`space-y-4 transition-opacity ${qualificationUnspecified ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">Tax Debt</label>
+                          <div className="relative">
+                            <span className="absolute left-4 top-3.5 text-slate-400 text-sm font-bold">$</span>
+                            <input
+                              type="number"
+                              value={qualificationTaxDebt}
+                              onChange={(e) => setQualificationTaxDebt(e.target.value)}
+                              placeholder="0.00"
+                              className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 pl-8 text-sm outline-none focus:ring-2 focus:ring-blue-100 placeholder:text-slate-300 font-medium"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">Tax Year(s)</label>
+                          <input
+                            type="text"
+                            value={qualificationTaxYear}
+                            onChange={(e) => setQualificationTaxYear(e.target.value)}
+                            placeholder="e.g. 2018, 2019, 2021"
+                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm outline-none focus:ring-2 focus:ring-blue-100 placeholder:text-slate-300 font-medium"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">Tax Type</label>
+                          <div className="flex gap-2">
+                            {['Federal', 'State', 'Both'].map((type) => (
+                              <label key={type} className={`flex-1 cursor-pointer border rounded-xl p-2 text-center text-xs font-bold transition-all ${
+                                qualificationTaxType === type
+                                  ? 'bg-green-600 text-white border-green-600 shadow-sm'
+                                  : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                              }`}>
+                                <input
+                                  type="radio"
+                                  name="taxType"
+                                  value={type}
+                                  checked={qualificationTaxType === type}
+                                  onChange={(e) => setQualificationTaxType(e.target.value)}
+                                  className="hidden"
+                                />
+                                {type}
+                              </label>
+                            ))}
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
                 </div>
 
                 {/* Final Submission - Show only when "Qualified" is selected as disposition */}
@@ -5029,8 +5208,14 @@ export default function DashboardPage() {
               <main className="flex-1 flex flex-col overflow-hidden">
 
                 {/* Top Toolbar */}
-                <header className="bg-white border-b border-slate-200 px-8 h-20 flex items-center justify-between shrink-0">
+                <header className="bg-white border-b border-slate-200 px-4 lg:px-8 h-20 flex items-center justify-between shrink-0">
                   <div className="flex items-center gap-4">
+                    <button 
+                      onClick={() => setIsSidebarOpen(true)}
+                      className="lg:hidden text-slate-600 hover:text-slate-900"
+                    >
+                      <i className="fa-solid fa-bars text-lg"></i>
+                    </button>
                     <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Contacts</h1>
                     {/* <div className="h-6 w-px bg-slate-200"></div>
                 <div className="flex bg-slate-100 p-1 rounded-xl">
@@ -5039,7 +5224,7 @@ export default function DashboardPage() {
                 </div> */}
                   </div>
 
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 lg:gap-3">
                     {/* <div className="relative group">
                   <i className="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
                   <input type="text" placeholder="Search by name, tag, or email..." className="pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-100 outline-none w-72 transition-all group-hover:bg-white" />
@@ -5054,31 +5239,31 @@ export default function DashboardPage() {
                     />
                     <button
                       onClick={() => setShowDeleteModal(true)}
-                      className="bg-white border border-red-200 text-red-600 px-5 py-2.5 rounded-xl font-bold text-sm shadow-sm hover:bg-red-50 transition-all flex items-center gap-2"
+                      className="bg-white border border-red-200 text-red-600 px-3 lg:px-5 py-2.5 rounded-xl font-bold text-sm shadow-sm hover:bg-red-50 transition-all flex items-center gap-2"
                     >
                       <i className="fa-solid fa-trash-can text-[10px]"></i>
-                      Delete Leads
+                      <span className="hidden sm:inline">Delete Leads</span>
                     </button>
                     <button
                       onClick={() => setShowImportModal(true)}
                       disabled={isImporting}
-                      className="bg-white border border-slate-200 text-slate-600 px-5 py-2.5 rounded-xl font-bold text-sm shadow-sm hover:bg-slate-50 transition-all flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                      className="bg-white border border-slate-200 text-slate-600 px-3 lg:px-5 py-2.5 rounded-xl font-bold text-sm shadow-sm hover:bg-slate-50 transition-all flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
                     >
                       <i className="fa-solid fa-cloud-arrow-up text-xs"></i>
-                      Import CSV
+                      <span className="hidden sm:inline">Import CSV</span>
                     </button>
 
                     <button
                       onClick={() => setShowLeadModal(true)}
-                      className="bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-blue-100 hover:bg-blue-700 transition-all flex items-center gap-2"
+                      className="bg-blue-600 text-white px-3 lg:px-5 py-2.5 rounded-xl font-bold text-sm shadow-lg shadow-blue-100 hover:bg-blue-700 transition-all flex items-center gap-2"
                     >
-                      <i className="fa-solid fa-plus text-[10px]"></i> Add New Lead
+                      <i className="fa-solid fa-plus text-[10px]"></i> <span className="hidden sm:inline">Add New Lead</span>
                     </button>
                   </div>
                 </header>
 
                 {/* Sub-Header / Filters */}
-                <div className="bg-white px-8 py-3 border-b border-slate-100 flex items-center justify-between shadow-sm">
+                <div className="bg-white px-4 lg:px-8 py-3 border-b border-slate-100 flex items-center justify-between shadow-sm overflow-x-auto">
                   <div className="flex items-center gap-2">
                     {/* Smart List Tabs */}
                     {/* <button
@@ -5144,7 +5329,30 @@ export default function DashboardPage() {
                       <span className="text-[10px] font-bold uppercase text-slate-400 tracking-[0.2em]">
                         Status
                       </span>
-                      <div className="flex flex-wrap gap-2">
+                      
+                      {/* Mobile Status Dropdown (Visible only on mobile) */}
+                      <div className="lg:hidden relative">
+                        <select
+                          value={statusFilter}
+                          onChange={(e) => {
+                            setStatusFilter(e.target.value);
+                            setCurrentPage(1);
+                          }}
+                          className="appearance-none px-4 py-2 pr-8 rounded-xl border border-slate-200 text-xs font-bold text-slate-600 bg-white focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-300 transition-all shadow-sm"
+                        >
+                          {STATUS_FILTERS.map((statusOption) => (
+                            <option key={statusOption} value={statusOption}>
+                              {statusOption}
+                            </option>
+                          ))}
+                        </select>
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                          <i className="fa-solid fa-chevron-down text-[10px]"></i>
+                        </div>
+                      </div>
+
+                      {/* Desktop Status Buttons (Hidden on mobile) */}
+                      <div className="hidden lg:flex flex-wrap gap-2">
                         {STATUS_FILTERS.map((statusOption) => {
                           const isActive = statusFilter === statusOption;
                           return (
@@ -5256,8 +5464,58 @@ export default function DashboardPage() {
                 )}
 
                 {/* CONTACTS TABLE AREA */}
-                <div className="flex-1 overflow-auto bg-white p-8">
-                  <table className="w-full text-left border-collapse min-w-[1000px]">
+                <div className="flex-1 overflow-auto bg-white p-4 lg:p-8">
+                  {/* Mobile List View (Visible only on mobile) */}
+                  <div className="lg:hidden space-y-4">
+                    {loading ? (
+                      <div className="text-center py-12 text-slate-500">
+                        <i className="fa-solid fa-circle-notch fa-spin text-blue-600 mr-2"></i> Loading leads...
+                      </div>
+                    ) : leads.length === 0 ? (
+                      <div className="text-center py-12 text-slate-500">
+                        No leads found. Add a new lead to get started.
+                      </div>
+                    ) : (
+                      leads.map((lead) => (
+                        <div 
+                          key={lead.id}
+                          className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm active:scale-[0.99] transition-transform"
+                          onClick={() => handleLeadClick(lead)}
+                        >
+                          <div className="flex justify-between items-start mb-2">
+                            <div>
+                              <h3 className="font-bold text-slate-900 text-base mb-0.5">
+                                {lead.first_name} {lead.last_name}
+                              </h3>
+                              <p className="text-slate-500 font-mono text-sm">{lead.phone || 'No phone'}</p>
+                            </div>
+                            <input
+                              type="checkbox"
+                              className="rounded text-indigo-600 border-slate-300 checkbox-custom h-5 w-5"
+                              checked={selectedLeads.has(lead.id)}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                toggleLeadSelection(lead.id);
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          </div>
+                          
+                          <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-50">
+                            <span className="px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200/50 rounded-lg text-xs font-bold uppercase tracking-wide">
+                              {formatStatusForDisplay(lead.status)}
+                            </span>
+                            <span className="text-xs text-slate-400 font-medium">
+                              {new Date(lead.created_at).toLocaleDateString()}
+                            </span>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {/* Desktop Table View (Hidden on mobile) */}
+                  <table className="hidden lg:table w-full text-left border-collapse min-w-[1000px]">
                     <thead>
                       <tr className="border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-widest text-left">
                         <th className="py-3 px-2 w-10">
@@ -5437,13 +5695,16 @@ export default function DashboardPage() {
                 </div>
 
                 {/* Pagination / Status Footer */}
-                <footer className="h-14 px-8 border-t border-slate-200 bg-white flex items-center justify-between shrink-0">
-                  <div className="flex items-center gap-4">
-                    <div className="text-xs font-semibold text-slate-500">
-                      Showing <span className="text-slate-900">{totalLeads > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0} - {Math.min(currentPage * itemsPerPage, totalLeads)}</span> of {totalLeads} Leads
+                <footer className="h-14 px-4 lg:px-8 border-t border-slate-200 bg-white flex items-center justify-between shrink-0">
+                  <div className="flex items-center gap-4 flex-1 min-w-0">
+                    <div className="text-xs font-semibold text-slate-500 truncate">
+                      <span className="hidden sm:inline">Showing </span>
+                      <span className="text-slate-900">{totalLeads > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0} - {Math.min(currentPage * itemsPerPage, totalLeads)}</span>
+                      <span className="hidden sm:inline"> of {totalLeads} Leads</span>
+                      <span className="sm:hidden"> / {totalLeads}</span>
                     </div>
-                    <div className="h-4 w-px bg-slate-200"></div>
-                    <div className="flex items-center gap-2">
+                    <div className="hidden sm:block h-4 w-px bg-slate-200"></div>
+                    <div className="hidden sm:flex items-center gap-2">
                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Show:</span>
                       <select
                         value={itemsPerPage}
@@ -5461,7 +5722,7 @@ export default function DashboardPage() {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1 shrink-0 ml-2">
                     <button
                       onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                       disabled={currentPage === 1}
@@ -5470,18 +5731,25 @@ export default function DashboardPage() {
                       <i className="fa-solid fa-chevron-left text-[10px]"></i>
                     </button>
 
-                    {getPageNumbers().map((pageNum) => (
-                      <button
-                        key={pageNum}
-                        onClick={() => setCurrentPage(pageNum)}
-                        className={`h-8 w-8 rounded-lg transition-all text-[11px] font-bold ${currentPage === pageNum
-                          ? 'bg-blue-600 text-white shadow-lg shadow-blue-100'
-                          : 'hover:bg-slate-100 text-slate-600'
-                          }`}
-                      >
-                        {pageNum}
-                      </button>
-                    ))}
+                    <div className="hidden sm:flex items-center gap-1">
+                      {getPageNumbers().map((pageNum) => (
+                        <button
+                          key={pageNum}
+                          onClick={() => setCurrentPage(pageNum)}
+                          className={`h-8 w-8 rounded-lg transition-all text-[11px] font-bold ${currentPage === pageNum
+                            ? 'bg-blue-600 text-white shadow-lg shadow-blue-100'
+                            : 'hover:bg-slate-100 text-slate-600'
+                            }`}
+                        >
+                          {pageNum}
+                        </button>
+                      ))}
+                    </div>
+                    
+                    {/* Mobile Page Indicator */}
+                    <span className="sm:hidden text-xs font-bold text-slate-600 px-2">
+                      {currentPage}
+                    </span>
 
                     <button
                       onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
@@ -5580,11 +5848,28 @@ export default function DashboardPage() {
           )
         }
 
+        {/* Mobile Floating Action Button for Dialer */}
+        {activeView !== 'dialer' && (
+          <button
+            onClick={() => setActiveView('dialer')}
+            className="fixed bottom-6 right-6 z-40 lg:hidden w-14 h-14 bg-blue-600 text-white rounded-full shadow-xl flex items-center justify-center hover:bg-blue-700 hover:scale-105 transition-all"
+            title="Open Dialer"
+          >
+            <i className="fa-solid fa-phone text-xl"></i>
+          </button>
+        )}
+
         {/* VIEW: SETTINGS */}
         {activeView === 'settings' && (
           <main className="flex-1 p-8 lg:p-12 overflow-y-auto bg-[#F8FAFC]" key="settings-view">
             <header className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12">
-              <div>
+              <div className="flex items-center gap-4">
+                <button 
+                  onClick={() => setIsSidebarOpen(true)}
+                  className="lg:hidden text-slate-600 hover:text-slate-900"
+                >
+                  <i className="fa-solid fa-bars text-lg"></i>
+                </button>
                 <h1 className="text-4xl font-black tracking-tight text-slate-900 leading-none">
                   Settings <span className="text-indigo-600 italic">Management</span>
                 </h1>
