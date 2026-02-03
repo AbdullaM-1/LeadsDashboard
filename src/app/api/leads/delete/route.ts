@@ -4,9 +4,8 @@ import { createClient } from '@supabase/supabase-js';
 /**
  * Leads Delete API
  *
- * Uses Supabase Service Role to bypass RLS, which can fail in production
- * due to session/cookie differences. Auth and permission checks are done
- * server-side before performing the delete.
+ * Uses only NEXT_PUBLIC Supabase keys with the user's auth token.
+ * Runs server-side so it avoids client cookie/session issues in production.
  *
  * Supports:
  * 1. Delete by lead IDs (selected leads)
@@ -35,33 +34,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
     if (!supabaseUrl || !supabaseAnonKey) {
       return NextResponse.json(
-        { error: 'Server configuration error' },
+        { error: 'Missing Supabase config. Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to your environment variables.' },
         { status: 500 }
       );
     }
 
-    if (!serviceRoleKey) {
-      console.error('SUPABASE_SERVICE_ROLE_KEY is not set');
-      return NextResponse.json(
-        { error: 'Server configuration error' },
-        { status: 500 }
-      );
-    }
-
-    // Verify user with anon key + their token
-    const supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
+    // Use anon key + user's token (no service role needed)
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
       global: {
         headers: { Authorization: authHeader },
       },
     });
 
-    const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
       return NextResponse.json(
         { error: 'Unauthorized. Please log in.' },
@@ -69,35 +59,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if user is admin
-    const { data: profile } = await supabaseClient
-      .from('user_profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single();
-
-    const isAdmin = profile?.role === 'admin';
-
-    // Service role client for the actual delete (bypasses RLS)
-    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    });
-
     const body = await request.json();
     const { leadIds, statusFilter } = body;
 
     // Case 1: Delete by specific lead IDs
     if (leadIds && Array.isArray(leadIds) && leadIds.length > 0) {
-      let query = supabaseAdmin.from('leads').delete().in('id', leadIds);
-
-      if (!isAdmin) {
-        query = query.eq('user_id', user.id);
-      }
-
-      const { error: deleteError } = await query;
+      const { error: deleteError } = await supabase
+        .from('leads')
+        .delete()
+        .in('id', leadIds);
 
       if (deleteError) {
         console.error('Error deleting leads by IDs:', deleteError);
@@ -115,16 +85,11 @@ export async function POST(request: NextRequest) {
 
     // Case 2: Delete by status filter
     if (statusFilter) {
-      let query = supabaseAdmin.from('leads').delete();
-
-      if (!isAdmin) {
-        query = query.eq('user_id', user.id);
-      }
-
       const statusesToDelete = STATUS_QUERY_MAP[statusFilter] ?? [statusFilter];
 
+      let query = supabase.from('leads').delete();
+
       if (statusFilter === 'All' || statusesToDelete.length === 0) {
-        // Delete all (for user: only their own; for admin: all)
         query = query.neq('id', '00000000-0000-0000-0000-000000000000');
       } else if (statusesToDelete.length === 1) {
         query = query.eq('status', statusesToDelete[0]);
