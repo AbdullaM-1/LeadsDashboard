@@ -166,12 +166,27 @@ body {
   padding: 2rem;
   width: 100%;
   max-width: 42rem;
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
   box-sizing: border-box;
   position: relative;
 }
 
 .glass-modal.glass-modal-sm { max-width: 32rem; }
 .glass-modal.glass-modal-lg { max-width: 48rem; }
+
+@media (max-width: 640px) {
+  .modal-overlay {
+    align-items: flex-start;
+    padding: 0.75rem;
+  }
+
+  .glass-modal {
+    padding: 1.25rem;
+    border-radius: 1rem;
+    max-height: calc(100vh - 1.5rem);
+  }
+}
 
 /* Modal entrance animation */
 @keyframes modal-float-in {

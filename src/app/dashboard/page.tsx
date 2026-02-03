@@ -3812,31 +3812,36 @@ export default function DashboardPage() {
       async () => {
         setIsDeleting(true);
         try {
-          let query = supabase.from('leads').delete();
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session) {
+            toast.error('You must be logged in to delete leads');
+            setIsDeleting(false);
+            return;
+          }
 
-      if (deleteStatusFilter !== 'All') {
-        const statusesToDelete = STATUS_QUERY_MAP[deleteStatusFilter] ?? [deleteStatusFilter];
-        if (statusesToDelete.length === 1) {
-          query = query.eq('status', statusesToDelete[0]);
-        } else {
-          query = query.in('status', statusesToDelete);
-        }
-      } else {
-        // To delete all, we need a condition that matches everything. neq id 0 is a safe bet for UUIDs
-        query = query.neq('id', '00000000-0000-0000-0000-000000000000');
-      }
+          const response = await fetch('/api/leads/delete', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({ statusFilter: deleteStatusFilter }),
+          });
 
-          const { error } = await query;
-          if (error) throw error;
+          const data = await response.json();
+
+          if (!response.ok) {
+            throw new Error(data.error || 'Failed to delete leads');
+          }
 
           setShowDeleteModal(false);
           setDeleteStatusFilter('All');
           resetPaginationState();
           await fetchLeads();
           toast.success('Leads deleted successfully');
-        } catch (err) {
+        } catch (err: unknown) {
           console.error('Error deleting leads:', err);
-          toast.error('Failed to delete leads');
+          toast.error(err instanceof Error ? err.message : 'Failed to delete leads');
         } finally {
           setIsDeleting(false);
         }
@@ -5818,14 +5823,34 @@ export default function DashboardPage() {
                           async () => {
                             setLoading(true);
                             try {
-                              const { error } = await supabase.from('leads').delete().in('id', Array.from(selectedLeads));
-                              if (error) throw error;
+                              const { data: { session } } = await supabase.auth.getSession();
+                              if (!session) {
+                                toast.error('You must be logged in to delete leads');
+                                setLoading(false);
+                                return;
+                              }
+
+                              const response = await fetch('/api/leads/delete', {
+                                method: 'POST',
+                                headers: {
+                                  'Content-Type': 'application/json',
+                                  'Authorization': `Bearer ${session.access_token}`,
+                                },
+                                body: JSON.stringify({ leadIds: Array.from(selectedLeads) }),
+                              });
+
+                              const data = await response.json();
+
+                              if (!response.ok) {
+                                throw new Error(data.error || 'Failed to delete leads');
+                              }
+
                               setSelectedLeads(new Set());
                               await fetchLeads();
                               toast.success(`Successfully deleted ${leadCount} lead${leadCount === 1 ? '' : 's'}`);
-                            } catch (err) {
+                            } catch (err: unknown) {
                               console.error('Error deleting leads:', err);
-                              toast.error('Failed to delete leads');
+                              toast.error(err instanceof Error ? err.message : 'Failed to delete leads');
                             } finally {
                               setLoading(false);
                             }

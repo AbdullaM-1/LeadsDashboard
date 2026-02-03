@@ -141,10 +141,7 @@ export default function LoginPage() {
             </div>
 
             <div>
-              <div className="flex justify-between items-center ml-1 mb-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Password</label>
-                <a href="#" className="text-[10px] font-black text-indigo-600 uppercase tracking-widest hover:underline">Forgot?</a>
-              </div>
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Password</label>
               <div className="relative">
                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none flex items-center justify-center">
                   <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4 w-4">
@@ -203,10 +200,6 @@ export default function LoginPage() {
           </div>
         </div>
 
-        {/* Footer link */}
-        <p className="text-center mt-10 text-xs font-bold text-slate-400 uppercase tracking-widest">
-          New node? <a href="#" className="text-indigo-600 hover:underline">Request Credentials</a>
-        </p>
       </div>
     </div>
   );
