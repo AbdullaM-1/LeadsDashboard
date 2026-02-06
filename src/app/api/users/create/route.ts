@@ -36,9 +36,9 @@ export async function POST(request: NextRequest) {
     // Extract token from "Bearer <token>"
     const token = authHeader.replace('Bearer ', '');
     
-    // Create client to verify user is admin
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY;
+    // Create client to verify user is admin (Amplify uses NEXT_PUBLIC_ vars)
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     
     if (!supabaseUrl || !supabaseAnonKey) {
       return NextResponse.json(

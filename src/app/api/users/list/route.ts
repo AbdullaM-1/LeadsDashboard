@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
 // This route requires Supabase Service Role key for admin operations
+// For Amplify: Add SUPABASE_SERVICE_ROLE_KEY in Environment variables (server-side)
 
 export async function GET(request: NextRequest) {
   try {
-    // Get the service role key from environment variables
+    // Get the service role key from environment variables (server-side only - never NEXT_PUBLIC)
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!serviceRoleKey) {
       console.error('SUPABASE_SERVICE_ROLE_KEY is not set');
