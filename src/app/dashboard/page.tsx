@@ -46,7 +46,7 @@ type DateFilterMode =
   | 'month'
   | 'customMonth';
 
-// NW# (No Working Number) = unreachable leads. W# (Wrong Number) = incorrect data.
+// NW# (No Working Number) = unreachable leads. W# (Wrong Number) = incorrect data. BZ (Busy Signal) = temporary, retry.
 // These must remain distinct dispositions; never merge or map one to the other.
 const DISPOSITION_OPTIONS = [
   'No Answer',
@@ -56,6 +56,7 @@ const DISPOSITION_OPTIONS = [
   'Do Not Call',
   'NW# (No Working Number)',
   'W# (Wrong Number)',
+  'BZ (Busy Signal)',
   'Not Interested',
   'Not Qualified',
   'No Tax Debt',
@@ -64,7 +65,7 @@ const DISPOSITION_OPTIONS = [
 
 const STATUS_FILTERS = ['All', 'New', ...DISPOSITION_OPTIONS] as const;
 
-// Each disposition has its own DB value(s). Do not alias NW# and W# (Wrong Number) to each other.
+// Each disposition has its own DB value(s). Do not alias BZ, NW#, or W# (Wrong Number) to each other.
 const STATUS_QUERY_MAP: Record<string, string[]> = {
   All: [],
   New: ['New'],
@@ -75,6 +76,7 @@ const STATUS_QUERY_MAP: Record<string, string[]> = {
   'Do Not Call': ['Do Not Call'],
   'NW# (No Working Number)': ['NW# (No Working Number)'],
   'W# (Wrong Number)': ['W# (Wrong Number)'],
+  'BZ (Busy Signal)': ['BZ (Busy Signal)'],
   'Not Interested': ['Not Interested'],
   'Not Qualified': ['Not Qualified'],
   'No Tax Debt': ['No Tax Debt'],
@@ -2989,6 +2991,19 @@ export default function DashboardPage() {
     );
   }, [activeLead, leadActivities]);
 
+  // BZ (Busy Signal) attempt count for current lead (from disposition_change activities)
+  const bzAttemptCount = useMemo(() => {
+    return (leadActivities || []).filter((a: any) => {
+      if (a.activity_type !== 'disposition_change') return false;
+      try {
+        const m = typeof a.metadata === 'string' ? JSON.parse(a.metadata) : (a.metadata || {});
+        return m.new_status === 'BZ (Busy Signal)';
+      } catch {
+        return false;
+      }
+    }).length;
+  }, [leadActivities]);
+
   const handleSubmitToIRSLogics = async () => {
     if (!activeLead) {
       toast.warning('Please select a lead first.');
@@ -3100,25 +3115,51 @@ export default function DashboardPage() {
       if (fetchError) throw fetchError;
 
       const oldStatus = currentLeadData?.status || activeLead.status;
-      const statusToSave = getPrimaryStatusValue(dispositionToUse);
+      let statusToSave = getPrimaryStatusValue(dispositionToUse);
+      let bzAttemptNumber: number | undefined;
+      let autoConvertedFromBz = false;
 
-      // Only proceed if status is actually changing (unless it's from IRSLogics button during power dialing)
+      // BZ (Busy Signal): track count from activities; 3rd BZ auto-converts to NW# (No Working Number)
+      if (dispositionToUse === 'BZ (Busy Signal)') {
+        const { data: bzActivities } = await supabase
+          .from('lead_activities')
+          .select('id, metadata')
+          .eq('lead_id', activeLead.id)
+          .eq('activity_type', 'disposition_change');
+        const previousBzCount = (bzActivities || []).filter((a: any) => {
+          try {
+            const m = typeof a.metadata === 'string' ? JSON.parse(a.metadata) : (a.metadata || {});
+            return m.new_status === 'BZ (Busy Signal)';
+          } catch {
+            return false;
+          }
+        }).length;
+        const newBzCount = previousBzCount + 1;
+        if (newBzCount >= 3) {
+          statusToSave = 'NW# (No Working Number)';
+          autoConvertedFromBz = true;
+        } else {
+          statusToSave = 'BZ (Busy Signal)';
+          bzAttemptNumber = newBzCount;
+        }
+      }
+
+      // Only proceed if status is actually changing (or BZ repeat for attempt counting, or IRSLogics during power dialing)
       const statusChanged = oldStatus !== statusToSave;
-      if (!statusChanged && !(fromIRSLogicsButton && isPowerDialing)) {
-        // If status hasn't changed and it's not from IRSLogics button during power dialing, show alert
+      const isBzRepeat = dispositionToUse === 'BZ (Busy Signal)'; // BZ can be submitted again for 2nd/3rd attempt
+      const shouldUpdateAndLog = statusChanged || isBzRepeat;
+      if (!shouldUpdateAndLog && !(fromIRSLogicsButton && isPowerDialing)) {
         if (!fromIRSLogicsButton) {
           toast.info('Status is already set to this value.');
         }
-        // If it's from IRSLogics button during power dialing and status hasn't changed,
-        // we still want to proceed to move to next call, so don't return here
         if (!isPowerDialing || !fromIRSLogicsButton) {
           setIsSubmittingDisposition(false);
           return;
         }
       }
 
-      // Update lead status only if it changed
-      if (statusChanged) {
+      // Update lead status and log activity (when status changed or when recording another BZ attempt)
+      if (shouldUpdateAndLog) {
         const updates: any = { status: statusToSave };
         
         // If status is "Qualified", save qualification details
@@ -3161,6 +3202,11 @@ export default function DashboardPage() {
           old_status_display: formatStatusForDisplay(oldStatus),
           new_status_display: formatStatusForDisplay(statusToSave),
         };
+        if (bzAttemptNumber != null) activityMetadata.bz_attempt_number = bzAttemptNumber;
+        if (autoConvertedFromBz) {
+          activityMetadata.auto_converted_from_bz = true;
+          activityMetadata.bz_attempt_count = 3;
+        }
 
         // If qualified, add qualification details to metadata
         if (statusToSave === 'Qualified' || statusToSave === 'Qualified Lead') {
@@ -3173,12 +3219,18 @@ export default function DashboardPage() {
            }
         }
 
+        const activityDescription = autoConvertedFromBz
+          ? `Auto-converted to NW# (No Working Number) after 3 BZ (Busy Signal) attempts`
+          : `Status changed from "${formatStatusForDisplay(oldStatus)}" to "${formatStatusForDisplay(statusToSave)}"`;
         await saveActivity(
           activeLead.id,
           'disposition_change',
-          `Status changed from "${formatStatusForDisplay(oldStatus)}" to "${formatStatusForDisplay(statusToSave)}"`,
+          activityDescription,
           activityMetadata
         );
+        if (autoConvertedFromBz) {
+          toast.info('Lead auto-converted to NW# (No Working Number) after 3 BZ attempts.');
+        }
 
         // Update local state
         if (activeLead) {
@@ -4817,6 +4869,16 @@ export default function DashboardPage() {
                                               {metadata?.new_status_display || metadata?.new_status || 'Unknown'}
                                             </span>
                                           </div>
+                                          {metadata?.bz_attempt_number != null && (
+                                            <p className="text-[11px] text-amber-700 font-medium">
+                                              BZ attempt #{metadata.bz_attempt_number}
+                                            </p>
+                                          )}
+                                          {metadata?.auto_converted_from_bz && (
+                                            <p className="text-[11px] text-amber-700 font-medium">
+                                              Auto-converted to NW# after 3 BZ attempts
+                                            </p>
+                                          )}
                                           
                                           {/* Show Qualification Details if present */}
                                           {(metadata?.estimated_debt || metadata?.unfiled_years || metadata?.tax_type || metadata?.qualification_unspecified) && (
@@ -5032,6 +5094,12 @@ export default function DashboardPage() {
                   <div className="mb-6">
                     <h4 className="text-sm font-bold text-slate-900 mb-1">Select Outcome <span className="text-red-500">*</span></h4>
                     <p className="text-[11px] text-slate-500">You must disposition this lead to move to the next item in queue.</p>
+                    {bzAttemptCount > 0 && (
+                      <p className="text-[11px] text-amber-600 font-medium mt-1.5 flex items-center gap-1">
+                        <i className="fa-solid fa-phone-slash text-amber-500"></i>
+                        BZ attempts: {bzAttemptCount} {bzAttemptCount >= 2 && <span className="text-amber-700">(3rd will auto-convert to NW#)</span>}
+                      </p>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-2 gap-2 mb-8">
