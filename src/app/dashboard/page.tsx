@@ -46,19 +46,25 @@ type DateFilterMode =
   | 'month'
   | 'customMonth';
 
+// NW# (No Working Number) = unreachable leads. W# (Wrong Number) = incorrect data.
+// These must remain distinct dispositions; never merge or map one to the other.
 const DISPOSITION_OPTIONS = [
   'No Answer',
   'Voice Mail',
   'Left Voice Mail',
   'Call Back',
   'Do Not Call',
+  'NW# (No Working Number)',
   'W# (Wrong Number)',
   'Not Interested',
+  'Not Qualified',
+  'No Tax Debt',
   'Qualified',
 ] as const;
 
 const STATUS_FILTERS = ['All', 'New', ...DISPOSITION_OPTIONS] as const;
 
+// Each disposition has its own DB value(s). Do not alias NW# and W# (Wrong Number) to each other.
 const STATUS_QUERY_MAP: Record<string, string[]> = {
   All: [],
   New: ['New'],
@@ -67,8 +73,11 @@ const STATUS_QUERY_MAP: Record<string, string[]> = {
   'Left Voice Mail': ['Left Voice Mail', 'Left Voicemail'],
   'Call Back': ['Call Back'],
   'Do Not Call': ['Do Not Call'],
+  'NW# (No Working Number)': ['NW# (No Working Number)'],
   'W# (Wrong Number)': ['W# (Wrong Number)'],
   'Not Interested': ['Not Interested'],
+  'Not Qualified': ['Not Qualified'],
+  'No Tax Debt': ['No Tax Debt'],
   Qualified: ['Qualified', 'Qualified Lead'],
 };
 
@@ -138,6 +147,7 @@ const getDisplayStatusFromDb = (status?: string | null) => {
   return match ? match[0] : status;
 };
 
+// Maps display label to canonical DB value only. Never convert between NW# and W# (Wrong Number).
 const getPrimaryStatusValue = (status: string) => {
   const values = STATUS_QUERY_MAP[status];
   if (values && values.length > 0) {
@@ -2117,7 +2127,12 @@ export default function DashboardPage() {
   }, [webPhone, webPhoneReady, isPowerDialing, currentCall, selectedLeads, statusFilter, dateFilterMode, selectedDate, selectedMonth, viewMode, leads, activeView]);
 
   // Move to next lead after call ends (when power dialing)
+  // DISABLED: Agent must select a disposition before advancing. Do not auto-advance on hang up or End Call.
   useEffect(() => {
+    if (isPowerDialing && !currentCall) {
+      return; // Require disposition; never auto-advance when call ends (prospect hung up or user clicked End Call)
+    }
+
     // Only check flag at the start - if it's set, skip this run
     // But allow it to proceed if flag gets cleared during the timeout
     const wasManuallyAdvancing = isManuallyAdvancingRef.current;
@@ -2550,7 +2565,8 @@ export default function DashboardPage() {
 
       const newCount = leads.filter(l => l.status === "New").length;
       const qualifiedCount = leads.filter(l => ["Qualified", "Qualified Lead"].includes(l.status)).length;
-      const discardedCount = leads.filter(l => ["Not Interested", "Do Not Call", "W# (Wrong Number)"].includes(l.status)).length;
+      // Count discarded separately per disposition; NW# and W# (Wrong Number) stay distinct in reporting
+      const discardedCount = leads.filter(l => ["Not Interested", "Do Not Call", "W# (Wrong Number)", "NW# (No Working Number)"].includes(l.status)).length;
       const pendingCount = leads.filter(l => ["Call Back", "Voice Mail", "Left Voice Mail"].includes(l.status)).length;
 
       const conversion = total > 0 ? (qualifiedCount / total) * 100 : 0;
@@ -3252,52 +3268,51 @@ export default function DashboardPage() {
       // This function only handles disposition changes to the database
       // When called with fromIRSLogicsButton=true, it means IRS Logics submission already succeeded
 
-      // If power dialing is active, end the call and move to next lead
-      // BUT: If the new status is "Qualified" and NOT from IRSLogics button, don't auto-advance - wait for IRSLogics button click
+      // If power dialing is active, move to next lead after disposition (and end call if still connected)
+      // Advancement happens on disposition only—never on hang up or End Call. If user already ended call, we still advance.
       const isQualifiedStatus = statusToSave === 'Qualified' || statusToSave === 'Qualified Lead';
-      if (isPowerDialing && currentCall && activeLead?.id && (fromIRSLogicsButton || !isQualifiedStatus)) {
+      if (isPowerDialing && activeLead?.id && (fromIRSLogicsButton || !isQualifiedStatus)) {
         try {
-          // Save call activity with duration before ending
-          if (callStartTime) {
-            const duration = Math.floor((new Date().getTime() - callStartTime.getTime()) / 1000);
-            await saveActivity(
-              activeLead.id,
-              'call',
-              `Call ended - Duration: ${formatCallDuration(duration)}`,
-              {
-                duration_seconds: duration,
-                phone_number: activeLead.phone,
-                call_type: 'outbound',
+          // If call is still active, save call activity and end it
+          if (currentCall) {
+            if (callStartTime) {
+              const duration = Math.floor((new Date().getTime() - callStartTime.getTime()) / 1000);
+              await saveActivity(
+                activeLead.id,
+                'call',
+                `Call ended - Duration: ${formatCallDuration(duration)}`,
+                {
+                  duration_seconds: duration,
+                  phone_number: activeLead.phone,
+                  call_type: 'outbound',
+                }
+              );
+            }
+
+            const session = currentCall as any;
+            const sessionState = session.state || (session as any).sessionState;
+
+            if (sessionState === 'Initial' || sessionState === 'Establishing') {
+              if (session.cancel) {
+                await session.cancel();
+              } else if (session.bye) {
+                await session.bye();
               }
-            );
+            } else {
+              if (session.bye) {
+                await session.bye();
+              } else if (session.terminate) {
+                await session.terminate();
+              }
+            }
+
+            setCallStartTime(null);
+            setCurrentCall(null);
+            currentCallRef.current = null;
+            setWebPhoneStatus('Call ended');
           }
 
-          // End the current call
-          const session = currentCall as any;
-          const sessionState = session.state || (session as any).sessionState;
-
-          if (sessionState === 'Initial' || sessionState === 'Establishing') {
-            // Call hasn't been established yet, cancel it
-            if (session.cancel) {
-              await session.cancel();
-            } else if (session.bye) {
-              await session.bye();
-            }
-          } else {
-            // Call is established, use bye()
-            if (session.bye) {
-              await session.bye();
-            } else if (session.terminate) {
-              await session.terminate();
-            }
-          }
-
-          setCallStartTime(null);
-          setCurrentCall(null);
-          currentCallRef.current = null;
-          setWebPhoneStatus('Call ended');
-
-          // Move to next lead and auto-dial
+          // Move to next lead and auto-dial (whether or not call was still active—disposition always advances)
           // CRITICAL: Set flag to prevent useEffect from also trying to advance
           isManuallyAdvancingRef.current = true;
 
@@ -5049,8 +5064,8 @@ export default function DashboardPage() {
                               // User must click "Submit to IRS Logics" to save
                               return;
                             }
-                            if (isPowerDialing && currentCall && activeLead) {
-                              // In power dialing, auto-submit all dispositions (except Qualified)
+                            if (isPowerDialing && activeLead) {
+                              // In power dialing: submit disposition and advance (works even after End Call)
                               await handleSubmitDisposition(option);
                             } else if (!isPowerDialing && activeLead) {
                               // For individual leads: save disposition immediately (except Qualified)

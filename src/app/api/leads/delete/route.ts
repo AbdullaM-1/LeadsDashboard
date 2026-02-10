@@ -11,6 +11,7 @@ import { createClient } from '@supabase/supabase-js';
  * 1. Delete by lead IDs (selected leads)
  * 2. Delete by status filter (bulk delete modal)
  */
+// Must match dashboard: NW# and W# (Wrong Number) are distinct; do not merge or alias.
 const STATUS_QUERY_MAP: Record<string, string[]> = {
   All: [],
   New: ['New'],
@@ -19,8 +20,11 @@ const STATUS_QUERY_MAP: Record<string, string[]> = {
   'Left Voice Mail': ['Left Voice Mail', 'Left Voicemail'],
   'Call Back': ['Call Back'],
   'Do Not Call': ['Do Not Call'],
+  'NW# (No Working Number)': ['NW# (No Working Number)'],
   'W# (Wrong Number)': ['W# (Wrong Number)'],
   'Not Interested': ['Not Interested'],
+  'Not Qualified': ['Not Qualified'],
+  'No Tax Debt': ['No Tax Debt'],
   Qualified: ['Qualified', 'Qualified Lead'],
 };
 
