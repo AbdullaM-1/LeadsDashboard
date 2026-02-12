@@ -47,7 +47,10 @@ export async function GET(request: NextRequest) {
 
     const clientId = process.env.NEXT_PUBLIC_RC_CLIENT_ID;
     const clientSecret = process.env.NEXT_PUBLIC_RC_CLIENT_SECRET;
-    const redirectUri = process.env.RINGCENTRAL_REDIRECT_URI || `${request.nextUrl.origin}/api/auth/ringcentral/callback`;
+    const fromEnv = process.env.RINGCENTRAL_REDIRECT_URI?.trim();
+    const fromRequest = `${request.nextUrl.origin}/api/auth/ringcentral/callback`;
+    const redirectUri = (fromEnv || fromRequest).replace(/\/$/, '');
+    console.log('[RC callback] redirect_uri used:', redirectUri, '| from env:', !!fromEnv, '| request origin:', request.nextUrl.origin);
     if (!clientId || !clientSecret) {
       dashboardUrl.searchParams.set('rc_error', 'server_config');
       return NextResponse.redirect(dashboardUrl.toString());
