@@ -904,12 +904,15 @@ export default function DashboardPage() {
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [newUser, setNewUser] = useState({ email: '', password: '', name: '', role: 'user' as 'admin' | 'user' });
   const [isCreatingUser, setIsCreatingUser] = useState(false);
+  const [rcLinkedInSettings, setRcLinkedInSettings] = useState<boolean | null>(null);
+  const [rcDisconnecting, setRcDisconnecting] = useState(false);
   const [selectedDisposition, setSelectedDisposition] = useState<string>('');
   const [itemsPerPage, setItemsPerPage] = useState(50);
   const [isSubmittingDisposition, setIsSubmittingDisposition] = useState(false);
   const [webPhone, setWebPhone] = useState<WebPhone | null>(null);
   const [webPhoneReady, setWebPhoneReady] = useState(false);
   const [webPhoneStatus, setWebPhoneStatus] = useState('Initializing...');
+  const [rcNeedsConnect, setRcNeedsConnect] = useState(false);
   const [pendingDialLead, setPendingDialLead] = useState<Lead | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -965,6 +968,11 @@ export default function DashboardPage() {
   const [qualificationTaxYear, setQualificationTaxYear] = useState<string>('');
   const [qualificationTaxType, setQualificationTaxType] = useState<string>('');
   const [qualificationUnspecified, setQualificationUnspecified] = useState<boolean>(false);
+  const [showQualificationForm, setShowQualificationForm] = useState<boolean>(false);
+
+  useEffect(() => {
+    setShowQualificationForm(false);
+  }, [activeLead?.id]);
 
   // Overview Metrics State
   const [metrics, setMetrics] = useState({
@@ -1282,6 +1290,29 @@ export default function DashboardPage() {
     }
   }, [activeView, fetchUsers, userIsAdmin, organizationUsers.length]);
 
+  // Fetch RingCentral link status when settings view is active
+  useEffect(() => {
+    if (activeView !== 'settings') return;
+    let cancelled = false;
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        if (!cancelled) setRcLinkedInSettings(false);
+        return;
+      }
+      try {
+        const res = await fetch(`${window.location.origin}/api/auth/ringcentral/tokens`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        const data = await res.json();
+        if (!cancelled) setRcLinkedInSettings(!!(data.linked && data.access_token));
+      } catch {
+        if (!cancelled) setRcLinkedInSettings(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [activeView]);
+
   const [isDownloadingRecordings, setIsDownloadingRecordings] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState('');
 
@@ -1480,11 +1511,112 @@ export default function DashboardPage() {
 
         const clientId = process.env.NEXT_PUBLIC_RC_CLIENT_ID;
         const clientSecret = process.env.NEXT_PUBLIC_RC_CLIENT_SECRET;
-        const server = process.env.NEXT_PUBLIC_RC_SERVER || 'https://platform.ringcentral.com';
-        const jwt = process.env.NEXT_PUBLIC_RC_JWT;
+        const defaultServer = process.env.NEXT_PUBLIC_RC_SERVER || 'https://platform.ringcentral.com';
 
-        if (!clientId || !clientSecret || !jwt) {
-          setWebPhoneStatus('Error: RingCentral credentials not configured. Please set NEXT_PUBLIC_RC_CLIENT_ID, NEXT_PUBLIC_RC_CLIENT_SECRET, and NEXT_PUBLIC_RC_JWT in your environment variables.');
+        if (!clientId || !clientSecret) {
+          setWebPhoneStatus('Error: RingCentral app not configured (NEXT_PUBLIC_RC_CLIENT_ID, NEXT_PUBLIC_RC_CLIENT_SECRET).');
+          return;
+        }
+
+        // Wait for auth to be restored (e.g. after page refresh) so we can load OAuth tokens
+        let user: { id: string } | null = null;
+        let session: { access_token: string } | null = null;
+        for (let i = 0; i < 25; i++) {
+          const { data: userData } = await supabase.auth.getUser();
+          const { data: sessionData } = await supabase.auth.getSession();
+          if (userData.user && sessionData.session) {
+            user = userData.user;
+            session = sessionData.session;
+            break;
+          }
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+        if (!user || !session) {
+          const { data: userData } = await supabase.auth.getUser();
+          const { data: sessionData } = await supabase.auth.getSession();
+          user = userData.user ?? null;
+          session = sessionData.session ?? null;
+        }
+
+        const justLinkedRc = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('rc_linked') === '1';
+        if (justLinkedRc && user && session) {
+          await new Promise((r) => setTimeout(r, 600));
+        }
+
+        let server = defaultServer;
+        let useOAuth = false;
+        let oauthAccessToken: string | undefined;
+        let oauthRefreshToken: string | undefined;
+        let oauthExpiresAt: string | undefined;
+        let oauthRefreshTokenExpiresIn: number | undefined;
+
+        if (user) {
+          const { data: profile } = await supabase
+            .from('user_profiles')
+            .select('rc_jwt, rc_server, rc_access_token')
+            .eq('id', user.id)
+            .single();
+          if (profile?.rc_server?.trim()) server = profile.rc_server.trim();
+          const shouldTryTokensApi = (profile?.rc_access_token || justLinkedRc) && session?.access_token;
+          if (shouldTryTokensApi) {
+            try {
+              let tokensData: { linked?: boolean; access_token?: string; refresh_token?: string; expires_at?: string; refresh_token_expires_in?: number; error?: string } = {};
+              let tokensRes = await fetch(`${window.location.origin}/api/auth/ringcentral/tokens`, {
+                headers: { Authorization: `Bearer ${session.access_token}` },
+              });
+              tokensData = await tokensRes.json();
+              if (tokensData.linked && tokensData.access_token) {
+                oauthAccessToken = tokensData.access_token;
+                oauthRefreshToken = tokensData.refresh_token;
+                oauthExpiresAt = tokensData.expires_at;
+                oauthRefreshTokenExpiresIn = tokensData.refresh_token_expires_in;
+                useOAuth = true;
+                console.log('[RC init] Using OAuth tokens from API for user:', user.id);
+              } else if (justLinkedRc && !tokensData.linked) {
+                await new Promise((r) => setTimeout(r, 1000));
+                tokensRes = await fetch(`${window.location.origin}/api/auth/ringcentral/tokens`, {
+                  headers: { Authorization: `Bearer ${session.access_token}` },
+                });
+                tokensData = await tokensRes.json();
+                if (tokensData.linked && tokensData.access_token) {
+                  oauthAccessToken = tokensData.access_token;
+                  oauthRefreshToken = tokensData.refresh_token;
+                  oauthExpiresAt = tokensData.expires_at;
+                  oauthRefreshTokenExpiresIn = tokensData.refresh_token_expires_in;
+                  useOAuth = true;
+                  console.log('[RC init] Using OAuth tokens from API (after retry) for user:', user.id);
+                } else {
+                  console.warn('[RC init] Tokens API did not return linked tokens (after retry):', {
+                    linked: tokensData.linked,
+                    error: tokensData.error,
+                    status: tokensRes.status,
+                    userId: user.id,
+                  });
+                }
+              } else {
+                console.warn('[RC init] Tokens API did not return linked tokens:', {
+                  linked: tokensData.linked,
+                  error: tokensData.error,
+                  status: tokensRes.status,
+                  userId: user.id,
+                });
+              }
+            } catch (fetchErr) {
+              console.error('[RC init] Tokens API fetch failed:', fetchErr);
+            }
+          }
+        }
+
+        let jwt: string | undefined;
+        if (!useOAuth && user) {
+          const { data: p } = await supabase.from('user_profiles').select('rc_jwt').eq('id', user.id).single();
+          jwt = p?.rc_jwt?.trim();
+        }
+        const envJwt = process.env.NEXT_PUBLIC_RC_JWT?.trim();
+
+        if (!useOAuth && !oauthAccessToken && !jwt && !envJwt) {
+          setWebPhoneStatus('Connect RingCentral to make calls');
+          setRcNeedsConnect(true);
           return;
         }
 
@@ -1504,9 +1636,24 @@ export default function DashboardPage() {
 
         setWebPhoneStatus('Logging in...');
 
-        await platform.login({
-          jwt: jwt.trim(),
-        });
+        if (useOAuth && oauthAccessToken) {
+          const loginOptions: { access_token: string; refresh_token?: string; access_token_ttl?: number; expires_in?: string; refresh_token_expires_in?: string } = { access_token: oauthAccessToken };
+          if (oauthRefreshToken) loginOptions.refresh_token = oauthRefreshToken;
+          let accessTokenExpiresIn = 0;
+          if (oauthExpiresAt) {
+            accessTokenExpiresIn = Math.max(0, Math.floor((new Date(oauthExpiresAt).getTime() - Date.now()) / 1000));
+            if (accessTokenExpiresIn > 0) {
+              loginOptions.access_token_ttl = accessTokenExpiresIn;
+              loginOptions.expires_in = String(accessTokenExpiresIn);
+            }
+          }
+          if (accessTokenExpiresIn <= 0) loginOptions.expires_in = '3600';
+          const refreshExpiresIn = oauthRefreshTokenExpiresIn != null && oauthRefreshTokenExpiresIn > 0 ? oauthRefreshTokenExpiresIn : 604800;
+          loginOptions.refresh_token_expires_in = String(refreshExpiresIn);
+          await platform.login(loginOptions);
+        } else {
+          await platform.login({ jwt: (jwt || envJwt)!.trim() });
+        }
 
         setWebPhoneStatus('Fetching SIP provision...');
 
@@ -1637,8 +1784,30 @@ export default function DashboardPage() {
         }
 
       } catch (error: any) {
-        console.error('Failed to initialize WebPhone:', error);
-        setWebPhoneStatus(INITIALIZATION_FAILURE_MESSAGE);
+        const errMsg = error?.message ?? String(error);
+        const errStack = error?.stack;
+        const errCode = error?.code;
+        const errResponse = error?.response;
+        console.error('[RC init] WebPhone initialization failed:', {
+          message: errMsg,
+          code: errCode,
+          stack: errStack,
+          response: errResponse,
+          full: error,
+        });
+        if (errResponse) {
+          try {
+            const cloned = errResponse.clone?.();
+            if (cloned) console.error('[RC init] Error response body:', await cloned.text());
+          } catch (_) {}
+        }
+        const isRcSessionInvalid = /refresh token has expired|refresh token is missing|token not found|token is revoked/i.test(errMsg);
+        if (isRcSessionInvalid) {
+          setRcNeedsConnect(true);
+          setWebPhoneStatus('RingCentral session invalid or expired. Please sign in with RingCentral again.');
+        } else {
+          setWebPhoneStatus(`${INITIALIZATION_FAILURE_MESSAGE} (${errMsg})`);
+        }
       }
     }
 
@@ -4279,7 +4448,7 @@ export default function DashboardPage() {
         )}
 
         {/* 1. LEFT NAVIGATION (SLIMMER & MORE MODERN) */}
-        <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-gradient-to-b from-slate-950 to-slate-900 text-white flex flex-col shrink-0 border-r border-white/10 shadow-xl transform transition-transform duration-300 lg:translate-x-0 lg:static lg:inset-auto ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <aside className={`fixed inset-y-0 left-0 z-50 w-64 h-screen bg-gradient-to-b from-slate-950 to-slate-900 text-white flex flex-col shrink-0 min-h-0 border-r border-white/10 shadow-xl transform transition-transform duration-300 lg:translate-x-0 lg:static lg:inset-auto ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
           <div className="h-20 flex items-center px-6 mb-6 border-b border-white/5">
             <div className="flex items-baseline gap-1.5">
               <span className="font-black tracking-tight text-base leading-tight" style={{ letterSpacing: '-0.01em' }}>Integrated</span>
@@ -4389,7 +4558,7 @@ export default function DashboardPage() {
             }
 
             return (
-              <div className="mt-8 px-4 flex-1 overflow-y-auto no-scrollbar">
+              <div className="mt-8 px-4 flex-1 min-h-0 overflow-y-auto no-scrollbar">
                 <div className="flex items-center justify-between px-3 mb-6">
                   <div className="flex items-center gap-2">
                     <span className="text-xs uppercase font-bold tracking-wide text-slate-400">Live Queue</span>
@@ -4932,7 +5101,7 @@ export default function DashboardPage() {
 
               {/* 3. RIGHT PANEL (THE ENGINE) - Mobile Full Screen */}
               <aside className={`
-                w-full lg:w-[400px] bg-white border-l border-slate-100 flex flex-col
+                w-full lg:w-[400px] bg-white border-l border-slate-100 flex flex-col min-h-0
                 fixed inset-0 z-50 lg:static lg:z-auto
                 transform transition-transform duration-300
                 ${isSidebarOpen ? 'translate-x-full lg:translate-x-0' : 'translate-x-0'}
@@ -4950,7 +5119,7 @@ export default function DashboardPage() {
                 </div>
 
                 {/* Dialer UI */}
-                <div className="bg-[#1E293B] shadow-inner h-[400px] lg:h-[400px] shrink-0 overflow-hidden relative flex flex-col">
+                <div className="bg-[#1E293B] shadow-inner h-[160px] lg:h-[160px] shrink-0 overflow-hidden relative flex flex-col">
                   {/* Video elements are now at root level for WebPhone initialization */}
 
 
@@ -4962,61 +5131,24 @@ export default function DashboardPage() {
                     </div>
                   )}
 
-                  {/* WebPhone Dialer UI */}
-                  <div className="flex-1 flex flex-col items-center justify-center p-6 text-white">
-                    {/* Power Dialer Toggle */}
-                    {/* <div className="absolute top-4 right-4">
-                  <button
-                    onClick={() => setPowerDialerEnabled(!powerDialerEnabled)}
-                    disabled={!webPhoneReady}
-                    className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-lg ${
-                      powerDialerEnabled
-                        ? 'bg-amber-600 hover:bg-amber-700 text-white'
-                        : 'bg-slate-700 hover:bg-slate-600 text-slate-200'
-                    } disabled:opacity-50 disabled:cursor-not-allowed`}
-                    title={powerDialerEnabled ? 'Power Dialer: ON - Auto-dialing enabled' : 'Power Dialer: OFF - Manual dial only'}
-                  >
-                    <i className={`fa-solid ${powerDialerEnabled ? 'fa-bolt' : 'fa-bolt'}`} style={{ opacity: powerDialerEnabled ? 1 : 0.3 }}></i>
-                    Power Dialer
-                  </button>
-                </div> */}
-
-                    <div className={`w-20 h-20 rounded-full border-2 flex items-center justify-center mb-4 transition-all ${webPhoneReady
-                      ? powerDialerEnabled
-                        ? 'bg-amber-600/20 border-amber-500/50'
-                        : 'bg-green-600/20 border-green-500/50'
-                      : currentCall
-                        ? 'bg-blue-600/20 border-blue-500/50 animate-pulse'
-                        : 'bg-blue-600/20 border-blue-500/50'
-                      }`}>
-                      <i className={`fa-solid text-3xl flex items-center justify-center ${currentCall ? 'fa-phone text-blue-400' :
-                        webPhoneReady
-                          ? powerDialerEnabled
-                            ? 'fa-bolt text-amber-400'
-                            : 'fa-phone text-green-400'
-                          : 'fa-phone text-blue-400'
-                        }`}></i>
-                    </div>
-
-                    <h3 className="text-lg font-bold mb-2">Web Phone</h3>
-                    <p className="text-xs text-slate-400 mb-2 uppercase tracking-widest text-center px-4">{webPhoneStatus}</p>
+                  {/* WebPhone Dialer UI - compact */}
+                  <div className="flex-1 flex flex-col items-center justify-center p-2 text-white min-h-0 gap-0.5">
+                    <p className="text-[10px] text-slate-400 uppercase tracking-widest text-center leading-tight">{webPhoneStatus}</p>
                     {isPowerDialing && (
-                      <p className="text-xs text-amber-400 mb-4 font-bold uppercase tracking-widest">⚡ Power Dialer Active</p>
+                      <p className="text-[10px] text-amber-400 font-bold uppercase tracking-widest leading-tight">⚡ Power Dialer Active</p>
                     )}
                     {powerDialerEnabled && webPhoneReady && !isPowerDialing && (
-                      <p className="text-xs text-amber-400 mb-4 font-bold uppercase tracking-widest">⚡ Power Dialer Enabled</p>
+                      <p className="text-[10px] text-amber-400 font-bold uppercase tracking-widest leading-tight">⚡ Power Dialer Enabled</p>
                     )}
 
                     {activeLead?.phone && (
-                      <div className="text-center mb-4 w-full">
-                        <p className="text-xs text-slate-400 mb-1">Current Lead</p>
-                        <p className="text-lg font-bold">{activeLead.phone}</p>
-                        <p className="text-xs text-slate-500 mt-1">{activeLead.first_name} {activeLead.last_name}</p>
+                      <div className="text-center w-full leading-tight">
+                        <p className="text-[10px] text-slate-400">Current Lead · <span className="font-bold text-white">{activeLead.phone}</span> {activeLead.first_name} {activeLead.last_name}</p>
                       </div>
                     )}
 
                     {currentCall ? (
-                      <div className="flex gap-3 mt-4">
+                      <div className="flex gap-2 mt-1">
                         <button
                           onClick={async () => {
                             if (!currentCall) return;
@@ -5058,7 +5190,7 @@ export default function DashboardPage() {
                               setWebPhoneStatus('Call ended');
                             }
                           }}
-                          className="px-6 py-3 bg-red-600 hover:bg-red-700 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-lg"
+                          className="mt-1 px-6 py-3 bg-red-600 hover:bg-red-700 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-lg"
                         >
                           <i className="fa-solid fa-phone-slash text-base"></i> End Call
                         </button>
@@ -5067,160 +5199,166 @@ export default function DashboardPage() {
                       <button
                         onClick={() => handleDial()}
                         disabled={!webPhoneReady || !activeLead?.phone}
-                        className="mt-4 px-8 py-3 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-lg"
+                        className="mt-1 px-8 py-3 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-lg"
                       >
-                        <i className="fa-solid fa-phone"></i> Call {activeLead.phone}
+                        <i className="fa-solid fa-phone text-base"></i> Call {activeLead.phone}
                       </button>
+                    ) : rcNeedsConnect ? (
+                      <div className="mt-1 text-center">
+                        <p className="text-[10px] text-slate-400 mb-1">Sign in with your RingCentral account to make calls.</p>
+                        <a
+                          href="/api/auth/ringcentral"
+                          className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all"
+                        >
+                          <i className="fa-solid fa-link"></i> Connect RingCentral
+                        </a>
+                      </div>
                     ) : !webPhoneReady ? (
-                      <div className="mt-4 text-center">
-                        <i className="fa-solid fa-circle-notch fa-spin text-blue-400 text-2xl"></i>
-                        <p className="text-xs text-slate-400 mt-2">Initializing...</p>
+                      <div className="mt-1 text-center">
+                        <i className="fa-solid fa-circle-notch fa-spin text-blue-400 text-base"></i>
+                        <p className="text-[10px] text-slate-400 mt-0.5">Initializing...</p>
                       </div>
                     ) : powerDialerEnabled && webPhoneReady ? (
-                      <div className="mt-4 text-center">
-                        <p className="text-xs text-amber-400 font-bold">Auto-dialing enabled</p>
-                        <p className="text-xs text-slate-400 mt-1">Will dial when lead is selected</p>
+                      <div className="mt-1 text-center">
+                        <p className="text-[10px] text-amber-400 font-bold">Auto-dialing enabled</p>
+                        <p className="text-[10px] text-slate-400">Will dial when lead is selected</p>
                       </div>
                     ) : (
-                      <div className="mt-4 text-center">
-                        <p className="text-xs text-slate-400">Select a lead to call</p>
+                      <div className="mt-1 text-center">
+                        <p className="text-[10px] text-slate-400">Select a lead to call</p>
                       </div>
                     )}
                   </div>
                 </div>
 
-                {/* Dispositions */}
-                <div className="flex-1 overflow-y-auto p-6 bg-slate-50/30 pb-24 lg:pb-6">
-                  <div className="mb-6">
-                    <h4 className="text-sm font-bold text-slate-900 mb-1">Select Outcome <span className="text-red-500">*</span></h4>
-                    <p className="text-[11px] text-slate-500">You must disposition this lead to move to the next item in queue.</p>
-                    {bzAttemptCount > 0 && (
-                      <p className="text-[11px] text-amber-600 font-medium mt-1.5 flex items-center gap-1">
-                        <i className="fa-solid fa-phone-slash text-amber-500"></i>
-                        BZ attempts: {bzAttemptCount} {bzAttemptCount >= 2 && <span className="text-amber-700">(3rd will auto-convert to NW#)</span>}
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2 mb-8">
-                    {DISPOSITION_OPTIONS.map((option) => {
-                      const isActive = selectedDisposition === option;
-                      const isQualified = option === 'Qualified';
-                      return (
+                {/* Dispositions - fills remaining height, scrolls internally */}
+                <div className="flex-1 min-h-0 overflow-y-auto p-6 bg-slate-50/30 pb-24 lg:pb-6">
+                  {showQualificationForm ? (
+                    <>
+                      <div className="flex items-center gap-2 mb-4">
                         <button
-                          key={option}
-                          onClick={async () => {
-                            setSelectedDisposition(option);
-                            if (isQualified) {
-                              // Check validation if not unspecified
-                              if (!qualificationUnspecified) {
-                                if (!qualificationTaxDebt && !qualificationTaxYear && !qualificationTaxType) {
-                                   // If "require details" means at least one:
-                                   // toast.warning('Please enter at least one qualification detail or check "Unspecified".');
-                                   // But prompt said: "user can also also add one detail while skipping other one"
-                                   // "else require details" -> maybe it implies if unspecified is unchecked, AT LEAST ONE detail is required?
-                                   // Let's assume loose validation (optional fields) but warn if ALL empty?
-                                   // Actually, "require details" usually implies mandatory.
-                                   // Let's try: if Unspecified is FALSE, show toast if ALL are empty.
-                                   if (!qualificationTaxDebt && !qualificationTaxYear && !qualificationTaxType) {
-                                      toast.warning('Please fill in qualification details or check "Unspecified".');
-                                      return;
-                                   }
-                                }
-                              }
-                              // For Qualified: Don't save to DB yet, just set the selection
-                              // User must click "Submit to IRS Logics" to save
-                              return;
-                            }
-                            if (isPowerDialing && activeLead) {
-                              // In power dialing: submit disposition and advance (works even after End Call)
-                              await handleSubmitDisposition(option);
-                            } else if (!isPowerDialing && activeLead) {
-                              // For individual leads: save disposition immediately (except Qualified)
-                              await handleSubmitDisposition(option);
-                            }
+                          type="button"
+                          onClick={() => {
+                            setShowQualificationForm(false);
+                            setSelectedDisposition('');
                           }}
-                          className={`p-2.5 rounded-xl text-[11px] font-bold transition-all border ${isActive
-                            ? 'bg-indigo-600 text-white border-indigo-700 shadow-md shadow-indigo-200'
-                            : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-400 hover:text-indigo-600'
-                            }`}
+                          className="p-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 text-sm font-bold flex items-center gap-1.5 transition-all"
                         >
-                          {option}
+                          <i className="fa-solid fa-arrow-left"></i> Back
                         </button>
-                      );
-                    })}
-                  </div>
-
-                    {/* Qualification Form */}
-                    <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-                      <div className="flex items-center gap-2 mb-5 border-b border-slate-50 pb-4">
-                        <div className="w-7 h-7 bg-green-50 rounded-lg flex items-center justify-center text-green-600">
-                          <i className="fa-solid fa-check-to-slot text-xs"></i>
-                        </div>
-                        <h5 className="font-bold text-sm">Qualification Details</h5>
-                        <div className="ml-auto">
-                          <label className="flex items-center gap-2 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={qualificationUnspecified}
-                              onChange={(e) => setQualificationUnspecified(e.target.checked)}
-                              className="rounded text-green-600 border-slate-300 checkbox-custom h-4 w-4"
-                            />
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Unspecified</span>
-                          </label>
-                        </div>
+                        <h4 className="text-sm font-bold text-slate-900">Qualification Details</h4>
                       </div>
-
-                      <div className={`space-y-4 transition-opacity ${qualificationUnspecified ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
-                        <div>
-                          <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">Tax Debt</label>
-                          <div className="relative">
-                            <span className="absolute left-4 top-3.5 text-slate-400 text-sm font-bold">$</span>
-                            <input
-                              type="number"
-                              value={qualificationTaxDebt}
-                              onChange={(e) => setQualificationTaxDebt(e.target.value)}
-                              placeholder="0.00"
-                              className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 pl-8 text-sm outline-none focus:ring-2 focus:ring-blue-100 placeholder:text-slate-300 font-medium"
-                            />
+                      <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+                        <div className="flex items-center gap-2 mb-4 border-b border-slate-50 pb-4">
+                          <div className="w-7 h-7 bg-green-50 rounded-lg flex items-center justify-center text-green-600">
+                            <i className="fa-solid fa-check-to-slot text-xs"></i>
+                          </div>
+                          <h5 className="font-bold text-sm">Qualification Details</h5>
+                          <div className="ml-auto">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={qualificationUnspecified}
+                                onChange={(e) => setQualificationUnspecified(e.target.checked)}
+                                className="rounded text-green-600 border-slate-300 checkbox-custom h-4 w-4"
+                              />
+                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Unspecified</span>
+                            </label>
                           </div>
                         </div>
-
-                        <div>
-                          <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">Tax Year(s)</label>
-                          <input
-                            type="text"
-                            value={qualificationTaxYear}
-                            onChange={(e) => setQualificationTaxYear(e.target.value)}
-                            placeholder="e.g. 2018, 2019, 2021"
-                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm outline-none focus:ring-2 focus:ring-blue-100 placeholder:text-slate-300 font-medium"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">Tax Type</label>
-                          <div className="flex gap-2">
-                            {['Federal', 'State', 'Both'].map((type) => (
-                              <label key={type} className={`flex-1 cursor-pointer border rounded-xl p-2 text-center text-xs font-bold transition-all ${
-                                qualificationTaxType === type
-                                  ? 'bg-green-600 text-white border-green-600 shadow-sm'
-                                  : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
-                              }`}>
-                                <input
-                                  type="radio"
-                                  name="taxType"
-                                  value={type}
-                                  checked={qualificationTaxType === type}
-                                  onChange={(e) => setQualificationTaxType(e.target.value)}
-                                  className="hidden"
-                                />
-                                {type}
-                              </label>
-                            ))}
+                        <div className={`space-y-4 transition-opacity ${qualificationUnspecified ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">Tax Debt</label>
+                            <div className="relative">
+                              <span className="absolute left-4 top-3.5 text-slate-400 text-sm font-bold">$</span>
+                              <input
+                                type="number"
+                                value={qualificationTaxDebt}
+                                onChange={(e) => setQualificationTaxDebt(e.target.value)}
+                                placeholder="0.00"
+                                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 pl-8 text-sm outline-none focus:ring-2 focus:ring-blue-100 placeholder:text-slate-300 font-medium"
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">Tax Year(s)</label>
+                            <input
+                              type="text"
+                              value={qualificationTaxYear}
+                              onChange={(e) => setQualificationTaxYear(e.target.value)}
+                              placeholder="e.g. 2018, 2019, 2021"
+                              className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm outline-none focus:ring-2 focus:ring-blue-100 placeholder:text-slate-300 font-medium"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">Tax Type</label>
+                            <div className="flex gap-2">
+                              {['Federal', 'State', 'Both'].map((type) => (
+                                <label key={type} className={`flex-1 cursor-pointer border rounded-xl p-2 text-center text-xs font-bold transition-all ${
+                                  qualificationTaxType === type
+                                    ? 'bg-green-600 text-white border-green-600 shadow-sm'
+                                    : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                                }`}>
+                                  <input
+                                    type="radio"
+                                    name="taxType"
+                                    value={type}
+                                    checked={qualificationTaxType === type}
+                                    onChange={(e) => setQualificationTaxType(e.target.value)}
+                                    className="hidden"
+                                  />
+                                  {type}
+                                </label>
+                              ))}
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="mb-6">
+                        <h4 className="text-sm font-bold text-slate-900 mb-1">Select Outcome <span className="text-red-500">*</span></h4>
+                        <p className="text-[11px] text-slate-500">You must disposition this lead to move to the next item in queue.</p>
+                        {bzAttemptCount > 0 && (
+                          <p className="text-[11px] text-amber-600 font-medium mt-1.5 flex items-center gap-1">
+                            <i className="fa-solid fa-phone-slash text-amber-500"></i>
+                            BZ attempts: {bzAttemptCount} {bzAttemptCount >= 2 && <span className="text-amber-700">(3rd will auto-convert to NW#)</span>}
+                          </p>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 mb-8">
+                        {DISPOSITION_OPTIONS.map((option) => {
+                          const isActive = selectedDisposition === option;
+                          const isQualified = option === 'Qualified';
+                          return (
+                            <button
+                              key={option}
+                              onClick={async () => {
+                                if (isQualified) {
+                                  setSelectedDisposition('Qualified');
+                                  setShowQualificationForm(true);
+                                  return;
+                                }
+                                setSelectedDisposition(option);
+                                if (isPowerDialing && activeLead) {
+                                  await handleSubmitDisposition(option);
+                                } else if (!isPowerDialing && activeLead) {
+                                  await handleSubmitDisposition(option);
+                                }
+                              }}
+                              className={`p-2.5 rounded-xl text-[11px] font-bold transition-all border ${isActive
+                                ? 'bg-indigo-600 text-white border-indigo-700 shadow-md shadow-indigo-200'
+                                : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-400 hover:text-indigo-600'
+                                }`}
+                            >
+                              {option}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 {/* Final Submission - Show only when "Qualified" is selected as disposition */}
@@ -5985,6 +6123,83 @@ export default function DashboardPage() {
             </header>
 
             <div className="max-w-7xl mx-auto space-y-8">
+              {/* RingCentral Connect / Disconnect */}
+              <div className="dashboard-card p-8">
+                <h3 className="text-xl font-black text-slate-900 mb-2">RingCentral</h3>
+                <p className="text-sm text-slate-500 mb-6">Connect your RingCentral account to make and receive calls from the dashboard.</p>
+                <div className="flex flex-wrap items-center gap-4">
+                  {rcLinkedInSettings === null ? (
+                    <span className="text-sm text-slate-400 flex items-center gap-2">
+                      <i className="fa-solid fa-circle-notch fa-spin"></i>
+                      Checking...
+                    </span>
+                  ) : rcLinkedInSettings ? (
+                    <>
+                      <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 text-sm font-bold">
+                        <i className="fa-solid fa-circle-check"></i>
+                        Connected
+                      </span>
+                      <a
+                        href="/api/auth/ringcentral"
+                        className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold transition-all inline-flex items-center gap-2"
+                      >
+                        <i className="fa-solid fa-arrow-rotate-right"></i>
+                        Reconnect
+                      </a>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          setRcDisconnecting(true);
+                          try {
+                            const { data: { session } } = await supabase.auth.getSession();
+                            if (!session) {
+                              toast.error('Not authenticated');
+                              return;
+                            }
+                            const res = await fetch('/api/auth/ringcentral/disconnect', {
+                              method: 'POST',
+                              headers: { Authorization: `Bearer ${session.access_token}` },
+                            });
+                            const data = await res.json();
+                            if (!res.ok) throw new Error(data.error || 'Failed to disconnect');
+                            setRcLinkedInSettings(false);
+                            setRcNeedsConnect(true);
+                            setWebPhoneStatus('Connect RingCentral to make calls');
+                            toast.success('RingCentral disconnected');
+                          } catch (e: any) {
+                            toast.error(e.message || 'Failed to disconnect');
+                          } finally {
+                            setRcDisconnecting(false);
+                          }
+                        }}
+                        disabled={rcDisconnecting}
+                        className="px-4 py-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 text-sm font-bold transition-all inline-flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        {rcDisconnecting ? (
+                          <>
+                            <i className="fa-solid fa-circle-notch fa-spin"></i>
+                            Disconnecting...
+                          </>
+                        ) : (
+                          <>
+                            <i className="fa-solid fa-link-slash"></i>
+                            Disconnect
+                          </>
+                        )}
+                      </button>
+                    </>
+                  ) : (
+                    <a
+                      href="/api/auth/ringcentral"
+                      className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold transition-all inline-flex items-center gap-2"
+                    >
+                      <i className="fa-solid fa-link"></i>
+                      Connect RingCentral
+                    </a>
+                  )}
+                </div>
+              </div>
+
               {/* Create New User Section - Admin Only */}
               {userIsAdmin && (
                 <div className="dashboard-card p-8">
