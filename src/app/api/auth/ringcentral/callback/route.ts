@@ -3,6 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 
 const RC_SERVER = process.env.NEXT_PUBLIC_RC_SERVER || 'https://platform.ringcentral.com';
+const PRODUCTION_ORIGIN = 'https://staged.d2cieh88reo0fp.amplifyapp.com';
+const REDIRECT_URI = `${PRODUCTION_ORIGIN}/api/auth/ringcentral/callback`;
 
 const ACCESS_TOKEN_TTL = 86400; // 24 hours (RingCentral max)
 const REFRESH_TOKEN_TTL = 604800; // 7 days (RingCentral max; longer values are capped)
@@ -18,9 +20,7 @@ export async function GET(request: NextRequest) {
   const state = searchParams.get('state');
   const errorParam = searchParams.get('error');
 
-  // Redirect to dashboard on app origin (set NEXT_PUBLIC_APP_URL in production so we don't use localhost).
-  const appOrigin = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, '') || request.nextUrl.origin;
-  const dashboardUrl = new URL('/dashboard', appOrigin);
+  const dashboardUrl = new URL('/dashboard', PRODUCTION_ORIGIN);
 
   if (errorParam) {
     dashboardUrl.searchParams.set('rc_error', errorParam);
@@ -49,10 +49,7 @@ export async function GET(request: NextRequest) {
 
     const clientId = process.env.NEXT_PUBLIC_RC_CLIENT_ID;
     const clientSecret = process.env.NEXT_PUBLIC_RC_CLIENT_SECRET;
-    // Must be EXACTLY the same string as in the authorize request (OAU-109)
-    const fromEnv = (process.env.NEXT_PUBLIC_RINGCENTRAL_REDIRECT_URI || process.env.RINGCENTRAL_REDIRECT_URI)?.trim().replace(/\/$/, '');
-    const fromRequest = request.nextUrl.origin + request.nextUrl.pathname;
-    const redirectUri = fromEnv || fromRequest;
+    const redirectUri = REDIRECT_URI;
     if (!clientId || !clientSecret) {
       dashboardUrl.searchParams.set('rc_error', 'server_config');
       return NextResponse.redirect(dashboardUrl.toString());

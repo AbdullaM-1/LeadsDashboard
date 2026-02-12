@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import crypto from 'crypto';
 
+const PRODUCTION_ORIGIN = 'https://staged.d2cieh88reo0fp.amplifyapp.com';
+const REDIRECT_URI = `${PRODUCTION_ORIGIN}/api/auth/ringcentral/callback`;
+
 /**
  * GET /api/auth/ringcentral
  * Redirects the logged-in user to RingCentral OAuth authorize URL.
@@ -28,11 +31,7 @@ export async function GET(request: NextRequest) {
 
     const clientId = process.env.NEXT_PUBLIC_RC_CLIENT_ID;
     const server = process.env.NEXT_PUBLIC_RC_SERVER || 'https://platform.ringcentral.com';
-    // OAU-109: redirect_uri must EXACTLY match a URI registered in RingCentral.
-    // Prefer env so production always uses production URL (not localhost).
-    const fromEnv = (process.env.NEXT_PUBLIC_RINGCENTRAL_REDIRECT_URI || process.env.RINGCENTRAL_REDIRECT_URI)?.trim().replace(/\/$/, '');
-    const baseOrigin = request.nextUrl.origin;
-    const redirectUri = fromEnv || `${baseOrigin}/api/auth/ringcentral/callback`;
+    const redirectUri = REDIRECT_URI;
     const stateSecret = process.env.RINGCENTRAL_OAUTH_STATE_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || 'rc-oauth-state';
 
     if (!clientId) {
