@@ -43,7 +43,7 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getUser()
 
   // Public paths that don't require authentication
-  const publicPaths = ['/login', '/auth'];
+  const publicPaths = ['/login', '/auth', '/api/auth/ringcentral/callback'];
   const isPublicPath = publicPaths.some(path => request.nextUrl.pathname.startsWith(path));
 
   if (!user && !isPublicPath) {

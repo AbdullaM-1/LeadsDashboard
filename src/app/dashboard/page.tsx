@@ -910,6 +910,7 @@ export default function DashboardPage() {
   const [webPhone, setWebPhone] = useState<WebPhone | null>(null);
   const [webPhoneReady, setWebPhoneReady] = useState(false);
   const [webPhoneStatus, setWebPhoneStatus] = useState('Initializing...');
+  const [rcNeedsConnect, setRcNeedsConnect] = useState(false);
   const [pendingDialLead, setPendingDialLead] = useState<Lead | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -1480,11 +1481,56 @@ export default function DashboardPage() {
 
         const clientId = process.env.NEXT_PUBLIC_RC_CLIENT_ID;
         const clientSecret = process.env.NEXT_PUBLIC_RC_CLIENT_SECRET;
-        const server = process.env.NEXT_PUBLIC_RC_SERVER || 'https://platform.ringcentral.com';
-        const jwt = process.env.NEXT_PUBLIC_RC_JWT;
+        const defaultServer = process.env.NEXT_PUBLIC_RC_SERVER || 'https://platform.ringcentral.com';
 
-        if (!clientId || !clientSecret || !jwt) {
-          setWebPhoneStatus('Error: RingCentral credentials not configured. Please set NEXT_PUBLIC_RC_CLIENT_ID, NEXT_PUBLIC_RC_CLIENT_SECRET, and NEXT_PUBLIC_RC_JWT in your environment variables.');
+        if (!clientId || !clientSecret) {
+          setWebPhoneStatus('Error: RingCentral app not configured (NEXT_PUBLIC_RC_CLIENT_ID, NEXT_PUBLIC_RC_CLIENT_SECRET).');
+          return;
+        }
+
+        const { data: { user } } = await supabase.auth.getUser();
+        const { data: { session } } = await supabase.auth.getSession();
+        let server = defaultServer;
+        let useOAuth = false;
+        let oauthAccessToken: string | undefined;
+        let oauthRefreshToken: string | undefined;
+        let oauthExpiresAt: string | undefined;
+        let oauthRefreshTokenExpiresIn: number | undefined;
+
+        if (user) {
+          const { data: profile } = await supabase
+            .from('user_profiles')
+            .select('rc_jwt, rc_server, rc_access_token')
+            .eq('id', user.id)
+            .single();
+          if (profile?.rc_server?.trim()) server = profile.rc_server.trim();
+          if (profile?.rc_access_token && session?.access_token) {
+            try {
+              const tokensRes = await fetch(`${window.location.origin}/api/auth/ringcentral/tokens`, {
+                headers: { Authorization: `Bearer ${session.access_token}` },
+              });
+              const tokensData = await tokensRes.json();
+              if (tokensData.linked && tokensData.access_token) {
+                oauthAccessToken = tokensData.access_token;
+                oauthRefreshToken = tokensData.refresh_token;
+                oauthExpiresAt = tokensData.expires_at;
+                oauthRefreshTokenExpiresIn = tokensData.refresh_token_expires_in;
+                useOAuth = true;
+              }
+            } catch (_) {}
+          }
+        }
+
+        let jwt: string | undefined;
+        if (!useOAuth && user) {
+          const { data: p } = await supabase.from('user_profiles').select('rc_jwt').eq('id', user.id).single();
+          jwt = p?.rc_jwt?.trim();
+        }
+        const envJwt = process.env.NEXT_PUBLIC_RC_JWT?.trim();
+
+        if (!useOAuth && !oauthAccessToken && !jwt && !envJwt) {
+          setWebPhoneStatus('Connect RingCentral to make calls');
+          setRcNeedsConnect(true);
           return;
         }
 
@@ -1504,9 +1550,20 @@ export default function DashboardPage() {
 
         setWebPhoneStatus('Logging in...');
 
-        await platform.login({
-          jwt: jwt.trim(),
-        });
+        if (useOAuth && oauthAccessToken) {
+          const loginOptions: { access_token: string; refresh_token?: string; access_token_ttl?: number; refresh_token_expires_in?: string } = { access_token: oauthAccessToken };
+          if (oauthRefreshToken) loginOptions.refresh_token = oauthRefreshToken;
+          if (oauthExpiresAt) {
+            const expiresIn = Math.max(0, Math.floor((new Date(oauthExpiresAt).getTime() - Date.now()) / 1000));
+            if (expiresIn > 0) loginOptions.access_token_ttl = expiresIn;
+          }
+          if (oauthRefreshTokenExpiresIn != null && oauthRefreshTokenExpiresIn > 0) {
+            loginOptions.refresh_token_expires_in = String(oauthRefreshTokenExpiresIn);
+          }
+          await platform.login(loginOptions);
+        } else {
+          await platform.login({ jwt: (jwt || envJwt)!.trim() });
+        }
 
         setWebPhoneStatus('Fetching SIP provision...');
 
@@ -1637,8 +1694,24 @@ export default function DashboardPage() {
         }
 
       } catch (error: any) {
-        console.error('Failed to initialize WebPhone:', error);
-        setWebPhoneStatus(INITIALIZATION_FAILURE_MESSAGE);
+        const errMsg = error?.message ?? String(error);
+        const errStack = error?.stack;
+        const errCode = error?.code;
+        const errResponse = error?.response;
+        console.error('Failed to initialize WebPhone:', {
+          message: errMsg,
+          code: errCode,
+          stack: errStack,
+          response: errResponse,
+          full: error,
+        });
+        const isRefreshTokenExpired = /refresh token has expired|refresh token is missing/i.test(errMsg);
+        if (isRefreshTokenExpired) {
+          setRcNeedsConnect(true);
+          setWebPhoneStatus('RingCentral session expired. Please sign in with RingCentral again.');
+        } else {
+          setWebPhoneStatus(`${INITIALIZATION_FAILURE_MESSAGE} (${errMsg})`);
+        }
       }
     }
 
@@ -5000,6 +5073,12 @@ export default function DashboardPage() {
 
                     <h3 className="text-lg font-bold mb-2">Web Phone</h3>
                     <p className="text-xs text-slate-400 mb-2 uppercase tracking-widest text-center px-4">{webPhoneStatus}</p>
+                    <a
+                      href="/api/auth/ringcentral"
+                      className="inline-flex items-center gap-2 text-xs font-bold text-indigo-300 hover:text-white mb-3 transition-colors"
+                    >
+                      <i className="fa-solid fa-link"></i> Sign in with RingCentral
+                    </a>
                     {isPowerDialing && (
                       <p className="text-xs text-amber-400 mb-4 font-bold uppercase tracking-widest">⚡ Power Dialer Active</p>
                     )}
@@ -5071,6 +5150,16 @@ export default function DashboardPage() {
                       >
                         <i className="fa-solid fa-phone"></i> Call {activeLead.phone}
                       </button>
+                    ) : rcNeedsConnect ? (
+                      <div className="mt-4 text-center">
+                        <p className="text-xs text-slate-400 mb-3">Sign in with your RingCentral account to make calls.</p>
+                        <a
+                          href="/api/auth/ringcentral"
+                          className="inline-flex items-center gap-2 px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold transition-all"
+                        >
+                          <i className="fa-solid fa-link"></i> Connect RingCentral
+                        </a>
+                      </div>
                     ) : !webPhoneReady ? (
                       <div className="mt-4 text-center">
                         <i className="fa-solid fa-circle-notch fa-spin text-blue-400 text-2xl"></i>
