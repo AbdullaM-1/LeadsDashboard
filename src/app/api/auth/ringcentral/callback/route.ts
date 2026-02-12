@@ -47,10 +47,14 @@ export async function GET(request: NextRequest) {
 
     const clientId = process.env.NEXT_PUBLIC_RC_CLIENT_ID;
     const clientSecret = process.env.NEXT_PUBLIC_RC_CLIENT_SECRET;
-    const fromEnv = process.env.RINGCENTRAL_REDIRECT_URI?.trim();
-    const fromRequest = `${request.nextUrl.origin}/api/auth/ringcentral/callback`;
-    const redirectUri = (fromEnv || fromRequest).replace(/\/$/, '');
-    console.log('[RC callback] redirect_uri used:', redirectUri, '| from env:', !!fromEnv, '| request origin:', request.nextUrl.origin);
+    // Build redirect_uri exactly as RingCentral called us (required for OAU-109)
+    const forwardedProto = request.headers.get('x-forwarded-proto');
+    const forwardedHost = request.headers.get('x-forwarded-host');
+    const origin = process.env.RINGCENTRAL_REDIRECT_URI?.trim()
+      ? new URL(process.env.RINGCENTRAL_REDIRECT_URI.trim()).origin
+      : (forwardedProto && forwardedHost ? `${forwardedProto}://${forwardedHost}` : request.nextUrl.origin);
+    const pathname = request.nextUrl.pathname;
+    const redirectUri = origin + pathname;
     if (!clientId || !clientSecret) {
       dashboardUrl.searchParams.set('rc_error', 'server_config');
       return NextResponse.redirect(dashboardUrl.toString());
