@@ -28,16 +28,11 @@ export async function GET(request: NextRequest) {
 
     const clientId = process.env.NEXT_PUBLIC_RC_CLIENT_ID;
     const server = process.env.NEXT_PUBLIC_RC_SERVER || 'https://platform.ringcentral.com';
-    // OAU-109: redirect_uri must EXACTLY match the URI in RingCentral.
+    // OAU-109: redirect_uri must EXACTLY match a URI registered in RingCentral.
+    // Prefer env so production always uses production URL (not localhost).
     const fromEnv = (process.env.NEXT_PUBLIC_RINGCENTRAL_REDIRECT_URI || process.env.RINGCENTRAL_REDIRECT_URI)?.trim().replace(/\/$/, '');
-    if (!fromEnv) {
-      console.error('[RC auth] NEXT_PUBLIC_RINGCENTRAL_REDIRECT_URI is not set.');
-      return NextResponse.json(
-        { error: 'NEXT_PUBLIC_RINGCENTRAL_REDIRECT_URI not set. Add it in Amplify env.' },
-        { status: 500 }
-      );
-    }
-    const redirectUri = fromEnv;
+    const baseOrigin = request.nextUrl.origin;
+    const redirectUri = fromEnv || `${baseOrigin}/api/auth/ringcentral/callback`;
     const stateSecret = process.env.RINGCENTRAL_OAUTH_STATE_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || 'rc-oauth-state';
 
     if (!clientId) {

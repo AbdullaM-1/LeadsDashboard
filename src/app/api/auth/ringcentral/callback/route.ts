@@ -18,7 +18,9 @@ export async function GET(request: NextRequest) {
   const state = searchParams.get('state');
   const errorParam = searchParams.get('error');
 
-  const dashboardUrl = new URL('/dashboard', request.nextUrl.origin);
+  // Redirect to dashboard on app origin (set NEXT_PUBLIC_APP_URL in production so we don't use localhost).
+  const appOrigin = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, '') || request.nextUrl.origin;
+  const dashboardUrl = new URL('/dashboard', appOrigin);
 
   if (errorParam) {
     dashboardUrl.searchParams.set('rc_error', errorParam);
