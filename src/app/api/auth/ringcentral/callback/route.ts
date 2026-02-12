@@ -47,14 +47,10 @@ export async function GET(request: NextRequest) {
 
     const clientId = process.env.NEXT_PUBLIC_RC_CLIENT_ID;
     const clientSecret = process.env.NEXT_PUBLIC_RC_CLIENT_SECRET;
-    // Build redirect_uri exactly as RingCentral called us (required for OAU-109)
-    const forwardedProto = request.headers.get('x-forwarded-proto');
-    const forwardedHost = request.headers.get('x-forwarded-host');
-    const origin = process.env.RINGCENTRAL_REDIRECT_URI?.trim()
-      ? new URL(process.env.RINGCENTRAL_REDIRECT_URI.trim()).origin
-      : (forwardedProto && forwardedHost ? `${forwardedProto}://${forwardedHost}` : request.nextUrl.origin);
-    const pathname = request.nextUrl.pathname;
-    const redirectUri = origin + pathname;
+    // Must be EXACTLY the same string as in the authorize request (OAU-109)
+    const fromEnv = (process.env.NEXT_PUBLIC_RINGCENTRAL_REDIRECT_URI || process.env.RINGCENTRAL_REDIRECT_URI)?.trim().replace(/\/$/, '');
+    const fromRequest = request.nextUrl.origin + request.nextUrl.pathname;
+    const redirectUri = fromEnv || fromRequest;
     if (!clientId || !clientSecret) {
       dashboardUrl.searchParams.set('rc_error', 'server_config');
       return NextResponse.redirect(dashboardUrl.toString());
@@ -79,8 +75,9 @@ export async function GET(request: NextRequest) {
 
     if (!tokenRes.ok) {
       const errText = await tokenRes.text();
-      console.error('RingCentral token exchange failed:', tokenRes.status, errText);
+      console.error('RingCentral token exchange failed:', tokenRes.status, errText, 'redirect_uri sent:', redirectUri);
       dashboardUrl.searchParams.set('rc_error', 'token_exchange_failed');
+      dashboardUrl.searchParams.set('rc_redirect_uri', encodeURIComponent(redirectUri));
       return NextResponse.redirect(dashboardUrl.toString());
     }
 
