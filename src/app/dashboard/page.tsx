@@ -904,6 +904,8 @@ export default function DashboardPage() {
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [newUser, setNewUser] = useState({ email: '', password: '', name: '', role: 'user' as 'admin' | 'user' });
   const [isCreatingUser, setIsCreatingUser] = useState(false);
+  const [rcLinkedInSettings, setRcLinkedInSettings] = useState<boolean | null>(null);
+  const [rcDisconnecting, setRcDisconnecting] = useState(false);
   const [selectedDisposition, setSelectedDisposition] = useState<string>('');
   const [itemsPerPage, setItemsPerPage] = useState(50);
   const [isSubmittingDisposition, setIsSubmittingDisposition] = useState(false);
@@ -1283,6 +1285,29 @@ export default function DashboardPage() {
     }
   }, [activeView, fetchUsers, userIsAdmin, organizationUsers.length]);
 
+  // Fetch RingCentral link status when settings view is active
+  useEffect(() => {
+    if (activeView !== 'settings') return;
+    let cancelled = false;
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        if (!cancelled) setRcLinkedInSettings(false);
+        return;
+      }
+      try {
+        const res = await fetch(`${window.location.origin}/api/auth/ringcentral/tokens`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        const data = await res.json();
+        if (!cancelled) setRcLinkedInSettings(!!(data.linked && data.access_token));
+      } catch {
+        if (!cancelled) setRcLinkedInSettings(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [activeView]);
+
   const [isDownloadingRecordings, setIsDownloadingRecordings] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState('');
 
@@ -1488,8 +1513,31 @@ export default function DashboardPage() {
           return;
         }
 
-        const { data: { user } } = await supabase.auth.getUser();
-        const { data: { session } } = await supabase.auth.getSession();
+        // Wait for auth to be restored (e.g. after page refresh) so we can load OAuth tokens
+        let user: { id: string } | null = null;
+        let session: { access_token: string } | null = null;
+        for (let i = 0; i < 25; i++) {
+          const { data: userData } = await supabase.auth.getUser();
+          const { data: sessionData } = await supabase.auth.getSession();
+          if (userData.user && sessionData.session) {
+            user = userData.user;
+            session = sessionData.session;
+            break;
+          }
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+        if (!user || !session) {
+          const { data: userData } = await supabase.auth.getUser();
+          const { data: sessionData } = await supabase.auth.getSession();
+          user = userData.user ?? null;
+          session = sessionData.session ?? null;
+        }
+
+        const justLinkedRc = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('rc_linked') === '1';
+        if (justLinkedRc && user && session) {
+          await new Promise((r) => setTimeout(r, 600));
+        }
+
         let server = defaultServer;
         let useOAuth = false;
         let oauthAccessToken: string | undefined;
@@ -1504,20 +1552,53 @@ export default function DashboardPage() {
             .eq('id', user.id)
             .single();
           if (profile?.rc_server?.trim()) server = profile.rc_server.trim();
-          if (profile?.rc_access_token && session?.access_token) {
+          const shouldTryTokensApi = (profile?.rc_access_token || justLinkedRc) && session?.access_token;
+          if (shouldTryTokensApi) {
             try {
-              const tokensRes = await fetch(`${window.location.origin}/api/auth/ringcentral/tokens`, {
+              let tokensData: { linked?: boolean; access_token?: string; refresh_token?: string; expires_at?: string; refresh_token_expires_in?: number; error?: string } = {};
+              let tokensRes = await fetch(`${window.location.origin}/api/auth/ringcentral/tokens`, {
                 headers: { Authorization: `Bearer ${session.access_token}` },
               });
-              const tokensData = await tokensRes.json();
+              tokensData = await tokensRes.json();
               if (tokensData.linked && tokensData.access_token) {
                 oauthAccessToken = tokensData.access_token;
                 oauthRefreshToken = tokensData.refresh_token;
                 oauthExpiresAt = tokensData.expires_at;
                 oauthRefreshTokenExpiresIn = tokensData.refresh_token_expires_in;
                 useOAuth = true;
+                console.log('[RC init] Using OAuth tokens from API for user:', user.id);
+              } else if (justLinkedRc && !tokensData.linked) {
+                await new Promise((r) => setTimeout(r, 1000));
+                tokensRes = await fetch(`${window.location.origin}/api/auth/ringcentral/tokens`, {
+                  headers: { Authorization: `Bearer ${session.access_token}` },
+                });
+                tokensData = await tokensRes.json();
+                if (tokensData.linked && tokensData.access_token) {
+                  oauthAccessToken = tokensData.access_token;
+                  oauthRefreshToken = tokensData.refresh_token;
+                  oauthExpiresAt = tokensData.expires_at;
+                  oauthRefreshTokenExpiresIn = tokensData.refresh_token_expires_in;
+                  useOAuth = true;
+                  console.log('[RC init] Using OAuth tokens from API (after retry) for user:', user.id);
+                } else {
+                  console.warn('[RC init] Tokens API did not return linked tokens (after retry):', {
+                    linked: tokensData.linked,
+                    error: tokensData.error,
+                    status: tokensRes.status,
+                    userId: user.id,
+                  });
+                }
+              } else {
+                console.warn('[RC init] Tokens API did not return linked tokens:', {
+                  linked: tokensData.linked,
+                  error: tokensData.error,
+                  status: tokensRes.status,
+                  userId: user.id,
+                });
               }
-            } catch (_) {}
+            } catch (fetchErr) {
+              console.error('[RC init] Tokens API fetch failed:', fetchErr);
+            }
           }
         }
 
@@ -1551,15 +1632,19 @@ export default function DashboardPage() {
         setWebPhoneStatus('Logging in...');
 
         if (useOAuth && oauthAccessToken) {
-          const loginOptions: { access_token: string; refresh_token?: string; access_token_ttl?: number; refresh_token_expires_in?: string } = { access_token: oauthAccessToken };
+          const loginOptions: { access_token: string; refresh_token?: string; access_token_ttl?: number; expires_in?: string; refresh_token_expires_in?: string } = { access_token: oauthAccessToken };
           if (oauthRefreshToken) loginOptions.refresh_token = oauthRefreshToken;
+          let accessTokenExpiresIn = 0;
           if (oauthExpiresAt) {
-            const expiresIn = Math.max(0, Math.floor((new Date(oauthExpiresAt).getTime() - Date.now()) / 1000));
-            if (expiresIn > 0) loginOptions.access_token_ttl = expiresIn;
+            accessTokenExpiresIn = Math.max(0, Math.floor((new Date(oauthExpiresAt).getTime() - Date.now()) / 1000));
+            if (accessTokenExpiresIn > 0) {
+              loginOptions.access_token_ttl = accessTokenExpiresIn;
+              loginOptions.expires_in = String(accessTokenExpiresIn);
+            }
           }
-          if (oauthRefreshTokenExpiresIn != null && oauthRefreshTokenExpiresIn > 0) {
-            loginOptions.refresh_token_expires_in = String(oauthRefreshTokenExpiresIn);
-          }
+          if (accessTokenExpiresIn <= 0) loginOptions.expires_in = '3600';
+          const refreshExpiresIn = oauthRefreshTokenExpiresIn != null && oauthRefreshTokenExpiresIn > 0 ? oauthRefreshTokenExpiresIn : 604800;
+          loginOptions.refresh_token_expires_in = String(refreshExpiresIn);
           await platform.login(loginOptions);
         } else {
           await platform.login({ jwt: (jwt || envJwt)!.trim() });
@@ -1698,17 +1783,23 @@ export default function DashboardPage() {
         const errStack = error?.stack;
         const errCode = error?.code;
         const errResponse = error?.response;
-        console.error('Failed to initialize WebPhone:', {
+        console.error('[RC init] WebPhone initialization failed:', {
           message: errMsg,
           code: errCode,
           stack: errStack,
           response: errResponse,
           full: error,
         });
-        const isRefreshTokenExpired = /refresh token has expired|refresh token is missing/i.test(errMsg);
-        if (isRefreshTokenExpired) {
+        if (errResponse) {
+          try {
+            const cloned = errResponse.clone?.();
+            if (cloned) console.error('[RC init] Error response body:', await cloned.text());
+          } catch (_) {}
+        }
+        const isRcSessionInvalid = /refresh token has expired|refresh token is missing|token not found|token is revoked/i.test(errMsg);
+        if (isRcSessionInvalid) {
           setRcNeedsConnect(true);
-          setWebPhoneStatus('RingCentral session expired. Please sign in with RingCentral again.');
+          setWebPhoneStatus('RingCentral session invalid or expired. Please sign in with RingCentral again.');
         } else {
           setWebPhoneStatus(`${INITIALIZATION_FAILURE_MESSAGE} (${errMsg})`);
         }
@@ -5073,12 +5164,6 @@ export default function DashboardPage() {
 
                     <h3 className="text-lg font-bold mb-2">Web Phone</h3>
                     <p className="text-xs text-slate-400 mb-2 uppercase tracking-widest text-center px-4">{webPhoneStatus}</p>
-                    <a
-                      href="/api/auth/ringcentral"
-                      className="inline-flex items-center gap-2 text-xs font-bold text-indigo-300 hover:text-white mb-3 transition-colors"
-                    >
-                      <i className="fa-solid fa-link"></i> Sign in with RingCentral
-                    </a>
                     {isPowerDialing && (
                       <p className="text-xs text-amber-400 mb-4 font-bold uppercase tracking-widest">⚡ Power Dialer Active</p>
                     )}
@@ -6074,6 +6159,83 @@ export default function DashboardPage() {
             </header>
 
             <div className="max-w-7xl mx-auto space-y-8">
+              {/* RingCentral Connect / Disconnect */}
+              <div className="dashboard-card p-8">
+                <h3 className="text-xl font-black text-slate-900 mb-2">RingCentral</h3>
+                <p className="text-sm text-slate-500 mb-6">Connect your RingCentral account to make and receive calls from the dashboard.</p>
+                <div className="flex flex-wrap items-center gap-4">
+                  {rcLinkedInSettings === null ? (
+                    <span className="text-sm text-slate-400 flex items-center gap-2">
+                      <i className="fa-solid fa-circle-notch fa-spin"></i>
+                      Checking...
+                    </span>
+                  ) : rcLinkedInSettings ? (
+                    <>
+                      <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 text-emerald-700 text-sm font-bold">
+                        <i className="fa-solid fa-circle-check"></i>
+                        Connected
+                      </span>
+                      <a
+                        href="/api/auth/ringcentral"
+                        className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold transition-all inline-flex items-center gap-2"
+                      >
+                        <i className="fa-solid fa-arrow-rotate-right"></i>
+                        Reconnect
+                      </a>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          setRcDisconnecting(true);
+                          try {
+                            const { data: { session } } = await supabase.auth.getSession();
+                            if (!session) {
+                              toast.error('Not authenticated');
+                              return;
+                            }
+                            const res = await fetch('/api/auth/ringcentral/disconnect', {
+                              method: 'POST',
+                              headers: { Authorization: `Bearer ${session.access_token}` },
+                            });
+                            const data = await res.json();
+                            if (!res.ok) throw new Error(data.error || 'Failed to disconnect');
+                            setRcLinkedInSettings(false);
+                            setRcNeedsConnect(true);
+                            setWebPhoneStatus('Connect RingCentral to make calls');
+                            toast.success('RingCentral disconnected');
+                          } catch (e: any) {
+                            toast.error(e.message || 'Failed to disconnect');
+                          } finally {
+                            setRcDisconnecting(false);
+                          }
+                        }}
+                        disabled={rcDisconnecting}
+                        className="px-4 py-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 text-sm font-bold transition-all inline-flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        {rcDisconnecting ? (
+                          <>
+                            <i className="fa-solid fa-circle-notch fa-spin"></i>
+                            Disconnecting...
+                          </>
+                        ) : (
+                          <>
+                            <i className="fa-solid fa-link-slash"></i>
+                            Disconnect
+                          </>
+                        )}
+                      </button>
+                    </>
+                  ) : (
+                    <a
+                      href="/api/auth/ringcentral"
+                      className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold transition-all inline-flex items-center gap-2"
+                    >
+                      <i className="fa-solid fa-link"></i>
+                      Connect RingCentral
+                    </a>
+                  )}
+                </div>
+              </div>
+
               {/* Create New User Section - Admin Only */}
               {userIsAdmin && (
                 <div className="dashboard-card p-8">

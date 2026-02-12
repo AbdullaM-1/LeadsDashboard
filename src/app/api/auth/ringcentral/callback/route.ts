@@ -4,6 +4,9 @@ import crypto from 'crypto';
 
 const RC_SERVER = process.env.NEXT_PUBLIC_RC_SERVER || 'https://platform.ringcentral.com';
 
+const ACCESS_TOKEN_TTL = 86400; // 24 hours (RingCentral max)
+const REFRESH_TOKEN_TTL = 604800; // 7 days (RingCentral max; longer values are capped)
+
 /**
  * GET /api/auth/ringcentral/callback
  * RingCentral redirects here with ?code=...&state=...
@@ -55,6 +58,8 @@ export async function GET(request: NextRequest) {
       grant_type: 'authorization_code',
       code,
       redirect_uri: redirectUri,
+      access_token_ttl: String(ACCESS_TOKEN_TTL),
+      refresh_token_ttl: String(REFRESH_TOKEN_TTL),
     });
     const tokenRes = await fetch(tokenUrl, {
       method: 'POST',
@@ -91,27 +96,37 @@ export async function GET(request: NextRequest) {
     }
 
     const supabase = createClient(supabaseUrl, serviceKey);
-    const updatePayload: Record<string, unknown> = {
+    const upsertPayload: Record<string, unknown> = {
+      id: userId,
       rc_access_token: access_token,
       rc_refresh_token: refresh_token,
       rc_token_expires_at: expires_at,
     };
-    if (refresh_token_expires_at) updatePayload.rc_refresh_token_expires_at = refresh_token_expires_at;
-    const { error: updateError } = await supabase
+    if (refresh_token_expires_at) upsertPayload.rc_refresh_token_expires_at = refresh_token_expires_at;
+    // Upsert so we create the profile row if it doesn't exist (e.g. user created before trigger existed).
+    const { error: upsertError } = await supabase
       .from('user_profiles')
-      .update(updatePayload)
-      .eq('id', userId);
+      .upsert(upsertPayload, { onConflict: 'id' });
 
-    if (updateError) {
-      console.error('Failed to save RC tokens:', updateError);
+    if (upsertError) {
+      console.error('[RC callback] Failed to save tokens to user_profiles:', {
+        userId,
+        code: upsertError.code,
+        message: upsertError.message,
+        details: upsertError.details,
+        hint: upsertError.hint,
+        full: upsertError,
+      });
       dashboardUrl.searchParams.set('rc_error', 'save_failed');
       return NextResponse.redirect(dashboardUrl.toString());
     }
 
+    console.log('[RC callback] Tokens saved for user:', userId);
     dashboardUrl.searchParams.set('rc_linked', '1');
     return NextResponse.redirect(dashboardUrl.toString());
   } catch (e) {
-    console.error('RingCentral callback error:', e);
+    console.error('[RC callback] Error:', e);
+    console.error('[RC callback] Full error (stack, etc.):', e instanceof Error ? { message: e.message, stack: e.stack, name: e.name } : e);
     dashboardUrl.searchParams.set('rc_error', 'callback_error');
     return NextResponse.redirect(dashboardUrl.toString());
   }

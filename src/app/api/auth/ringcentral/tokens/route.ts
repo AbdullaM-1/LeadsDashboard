@@ -3,6 +3,9 @@ import { createClient } from '@supabase/supabase-js';
 
 const RC_SERVER = process.env.NEXT_PUBLIC_RC_SERVER || 'https://platform.ringcentral.com';
 
+const ACCESS_TOKEN_TTL = 86400; // 24 hours (RingCentral max)
+const REFRESH_TOKEN_TTL = 604800; // 7 days (RingCentral max; longer values are capped)
+
 /**
  * GET /api/auth/ringcentral/tokens
  * Returns the current user's RingCentral OAuth tokens.
@@ -39,6 +42,11 @@ export async function GET(request: NextRequest) {
       .single();
 
     if (profileError || !profile?.rc_refresh_token) {
+      console.warn('[RC tokens] Returning linked: false', {
+        userId: user.id,
+        profileError: profileError ? { code: profileError.code, message: profileError.message, details: profileError.details } : null,
+        hasRefreshToken: !!profile?.rc_refresh_token,
+      });
       return NextResponse.json({ linked: false }, { status: 200 });
     }
 
@@ -59,6 +67,8 @@ export async function GET(request: NextRequest) {
       const body = new URLSearchParams({
         grant_type: 'refresh_token',
         refresh_token: profile.rc_refresh_token,
+        access_token_ttl: String(ACCESS_TOKEN_TTL),
+        refresh_token_ttl: String(REFRESH_TOKEN_TTL),
       });
       const refreshRes = await fetch(tokenUrl, {
         method: 'POST',
@@ -70,7 +80,12 @@ export async function GET(request: NextRequest) {
       });
       if (!refreshRes.ok) {
         const errText = await refreshRes.text();
-        console.error('RC token refresh failed:', refreshRes.status, errText);
+        console.error('[RC tokens] Refresh failed:', {
+          status: refreshRes.status,
+          statusText: refreshRes.statusText,
+          body: errText,
+          userId: user.id,
+        });
         return NextResponse.json({ error: 'Token refresh failed', linked: false }, { status: 401 });
       }
       const data = await refreshRes.json();
@@ -115,9 +130,11 @@ export async function GET(request: NextRequest) {
     };
     if (refresh_token_expires_in !== undefined) payload.refresh_token_expires_in = refresh_token_expires_in;
 
+    console.log('[RC tokens] Returning tokens for user:', user.id);
     return NextResponse.json(payload);
   } catch (e) {
-    console.error('RingCentral tokens error:', e);
+    console.error('[RC tokens] Error:', e);
+    console.error('[RC tokens] Full error:', e instanceof Error ? { message: e.message, stack: e.stack } : e);
     return NextResponse.json({ error: 'Failed to get tokens' }, { status: 500 });
   }
 }
