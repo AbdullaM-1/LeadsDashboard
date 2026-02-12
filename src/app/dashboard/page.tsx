@@ -967,7 +967,6 @@ export default function DashboardPage() {
   const [qualificationTaxDebt, setQualificationTaxDebt] = useState<string>('');
   const [qualificationTaxYear, setQualificationTaxYear] = useState<string>('');
   const [qualificationTaxType, setQualificationTaxType] = useState<string>('');
-  const [qualificationUnspecified, setQualificationUnspecified] = useState<boolean>(false);
   const [showQualificationForm, setShowQualificationForm] = useState<boolean>(false);
 
   useEffect(() => {
@@ -3333,28 +3332,14 @@ export default function DashboardPage() {
         
         // If status is "Qualified", save qualification details
         if (statusToSave === 'Qualified' || statusToSave === 'Qualified Lead') {
-          // Only save if unspecified is NOT checked or if fields are filled
-          // If unspecified is checked, we might want to clear or save a flag, 
-          // but typically "Unspecified" means "skip details" so we do nothing or clear them.
-          // However, if the user fills them, we save them.
-          
-          if (!qualificationUnspecified) {
-             if (qualificationTaxDebt) updates.estimated_debt = parseFloat(qualificationTaxDebt);
-             if (qualificationTaxYear) updates.unfiled_years = qualificationTaxYear.split(',').map(s => s.trim()).filter(s => s);
-             // We can't save tax_type as it's not in the DB schema yet.
-             // We'll save it in tags for now as a workaround since we can't migrate DB easily here.
-             // Or we just ignore it for DB but keep it in state/UI.
-             // User said "saved in db".
-             // Let's check if we can leverage the 'tags' column to store "TaxType:Federal" etc.
-             if (qualificationTaxType) {
-                // Fetch current tags first to append
-                const currentTags = activeLead.tags || [];
-                const taxTypeTagPrefix = 'TaxType:';
-                // Remove existing tax type tags
-                const newTags = currentTags.filter(t => !t.startsWith(taxTypeTagPrefix));
-                newTags.push(`${taxTypeTagPrefix}${qualificationTaxType}`);
-                updates.tags = newTags;
-             }
+          if (qualificationTaxDebt) updates.estimated_debt = parseFloat(qualificationTaxDebt);
+          if (qualificationTaxYear) updates.unfiled_years = qualificationTaxYear.split(',').map(s => s.trim()).filter(s => s);
+          if (qualificationTaxType) {
+            const currentTags = activeLead.tags || [];
+            const taxTypeTagPrefix = 'TaxType:';
+            const newTags = currentTags.filter((t: string) => !t.startsWith(taxTypeTagPrefix));
+            newTags.push(`${taxTypeTagPrefix}${qualificationTaxType}`);
+            updates.tags = newTags;
           }
         }
 
@@ -3379,13 +3364,9 @@ export default function DashboardPage() {
 
         // If qualified, add qualification details to metadata
         if (statusToSave === 'Qualified' || statusToSave === 'Qualified Lead') {
-           if (!qualificationUnspecified) {
-              if (qualificationTaxDebt) activityMetadata.estimated_debt = qualificationTaxDebt;
-              if (qualificationTaxYear) activityMetadata.unfiled_years = qualificationTaxYear;
-              if (qualificationTaxType) activityMetadata.tax_type = qualificationTaxType;
-           } else {
-              activityMetadata.qualification_unspecified = true;
-           }
+          if (qualificationTaxDebt) activityMetadata.estimated_debt = qualificationTaxDebt;
+          if (qualificationTaxYear) activityMetadata.unfiled_years = qualificationTaxYear;
+          if (qualificationTaxType) activityMetadata.tax_type = qualificationTaxType;
         }
 
         const activityDescription = autoConvertedFromBz
@@ -5050,33 +5031,29 @@ export default function DashboardPage() {
                                           )}
                                           
                                           {/* Show Qualification Details if present */}
-                                          {(metadata?.estimated_debt || metadata?.unfiled_years || metadata?.tax_type || metadata?.qualification_unspecified) && (
+                                          {(metadata?.estimated_debt || metadata?.unfiled_years || metadata?.tax_type) && (
                                             <div className="mt-3 pt-3 border-t border-green-200/50">
                                               <p className="text-[10px] font-bold text-green-800 uppercase tracking-wider mb-2">Qualification Details</p>
-                                              {metadata.qualification_unspecified ? (
-                                                <span className="text-xs text-green-700 italic">Unspecified</span>
-                                              ) : (
-                                                <div className="grid grid-cols-2 gap-2 text-xs">
-                                                  {metadata.estimated_debt && (
-                                                    <div>
-                                                      <span className="text-green-600 block text-[10px] uppercase">Tax Debt</span>
-                                                      <span className="font-semibold text-green-900">${parseFloat(metadata.estimated_debt).toLocaleString()}</span>
-                                                    </div>
-                                                  )}
-                                                  {metadata.unfiled_years && (
-                                                    <div>
-                                                      <span className="text-green-600 block text-[10px] uppercase">Tax Year(s)</span>
-                                                      <span className="font-semibold text-green-900">{metadata.unfiled_years}</span>
-                                                    </div>
-                                                  )}
-                                                  {metadata.tax_type && (
-                                                    <div className="col-span-2">
-                                                      <span className="text-green-600 block text-[10px] uppercase">Tax Type</span>
-                                                      <span className="font-semibold text-green-900">{metadata.tax_type}</span>
-                                                    </div>
-                                                  )}
-                                                </div>
-                                              )}
+                                              <div className="grid grid-cols-2 gap-2 text-xs">
+                                                {metadata.estimated_debt && (
+                                                  <div>
+                                                    <span className="text-green-600 block text-[10px] uppercase">Tax Debt</span>
+                                                    <span className="font-semibold text-green-900">${parseFloat(metadata.estimated_debt).toLocaleString()}</span>
+                                                  </div>
+                                                )}
+                                                {metadata.unfiled_years && (
+                                                  <div>
+                                                    <span className="text-green-600 block text-[10px] uppercase">Tax Year(s)</span>
+                                                    <span className="font-semibold text-green-900">{metadata.unfiled_years}</span>
+                                                  </div>
+                                                )}
+                                                {metadata.tax_type && (
+                                                  <div className="col-span-2">
+                                                    <span className="text-green-600 block text-[10px] uppercase">Tax Type</span>
+                                                    <span className="font-semibold text-green-900">{metadata.tax_type}</span>
+                                                  </div>
+                                                )}
+                                              </div>
                                             </div>
                                           )}
                                         </div>
@@ -5254,19 +5231,8 @@ export default function DashboardPage() {
                             <i className="fa-solid fa-check-to-slot text-xs"></i>
                           </div>
                           <h5 className="font-bold text-sm">Qualification Details</h5>
-                          <div className="ml-auto">
-                            <label className="flex items-center gap-2 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={qualificationUnspecified}
-                                onChange={(e) => setQualificationUnspecified(e.target.checked)}
-                                className="rounded text-green-600 border-slate-300 checkbox-custom h-4 w-4"
-                              />
-                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Unspecified</span>
-                            </label>
-                          </div>
                         </div>
-                        <div className={`space-y-4 transition-opacity ${qualificationUnspecified ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
+                        <div className="space-y-4">
                           <div>
                             <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">Tax Debt</label>
                             <div className="relative">
