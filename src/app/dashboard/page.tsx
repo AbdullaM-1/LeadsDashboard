@@ -4460,13 +4460,23 @@ export default function DashboardPage() {
               <span>CRM Contacts</span>
             </button>
 
-            {hasOpenedContact && (
+            {(hasOpenedContact || powerDialerEnabled || isPowerDialing) && (
               <button
                 onClick={() => { setActiveView('dialer'); setIsSidebarOpen(false); }}
                 className={`nav-link w-full ${activeView === 'dialer' ? 'active' : ''}`}
               >
                 <i className="fa-solid fa-bolt w-5 flex items-center justify-center"></i>
                 <span>Power Dialer</span>
+              </button>
+            )}
+
+            {isPowerDialing && activeView !== 'dialer' && (
+              <button
+                onClick={() => { setActiveView('dialer'); setIsSidebarOpen(false); }}
+                className="nav-link w-full text-amber-400 hover:text-amber-300 hover:bg-amber-500/10"
+              >
+                <i className="fa-solid fa-arrow-left w-5 flex items-center justify-center"></i>
+                <span>Back to Power Dialer</span>
               </button>
             )}
 
@@ -6059,17 +6069,6 @@ export default function DashboardPage() {
             </>
           )
         }
-
-        {/* Mobile Floating Action Button for Dialer */}
-        {activeView !== 'dialer' && (
-          <button
-            onClick={() => setActiveView('dialer')}
-            className="fixed bottom-6 right-6 z-40 lg:hidden w-14 h-14 bg-blue-600 text-white rounded-full shadow-xl flex items-center justify-center hover:bg-blue-700 hover:scale-105 transition-all"
-            title="Open Dialer"
-          >
-            <i className="fa-solid fa-phone text-xl"></i>
-          </button>
-        )}
 
         {/* VIEW: SETTINGS */}
         {activeView === 'settings' && (
