@@ -19,6 +19,28 @@ function formatPhoneNumber(phone: string | undefined): string | undefined {
   return phone;
 }
 
+// Map our qualification "Tax Type" (Federal/State/Both) to API TAX_RELIEF_TAX_AGENCY
+// API accepts: FEDERAL and STATE (comma separated for both)
+function mapTaxAgency(ourTaxType: string | undefined): string | undefined {
+  if (!ourTaxType || !ourTaxType.trim()) return undefined;
+  const t = ourTaxType.trim().toLowerCase();
+  if (t === 'federal') return 'FEDERAL';
+  if (t === 'state') return 'STATE';
+  if (t === 'both') return 'FEDERAL,STATE';
+  return undefined;
+}
+
+// Format DOB for API: MM/dd/yyyy
+function formatDOB(value: string | undefined): string | undefined {
+  if (!value || !value.trim()) return undefined;
+  const d = new Date(value.trim());
+  if (Number.isNaN(d.getTime())) return undefined;
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  return `${mm}/${dd}/${yyyy}`;
+}
+
 async function pushToIrsLogics(payload: any) {
   console.log('[irs] Payload:', JSON.stringify(payload, null, 2));
   const authHeader = 'Basic ' + Buffer.from(`${API_KEY}:${SECRET_TOKEN}`).toString('base64');
@@ -93,17 +115,52 @@ export async function POST(request: NextRequest) {
       payload.Address = leadData.address_line1.trim();
     }
 
+    if (leadData.apt_no != null && String(leadData.apt_no).trim()) {
+      payload.AptNo = String(leadData.apt_no).trim();
+    } else if (leadData.address_line2 && leadData.address_line2.trim()) {
+      payload.AptNo = leadData.address_line2.trim();
+    }
+
     if (leadData.city && leadData.city.trim()) {
       payload.City = leadData.city.trim();
     }
 
     if (leadData.state && leadData.state.trim()) {
-      payload.State = leadData.state.trim();
+      // API: State must be 2 characters (e.g., 'CA', 'NY')
+      const state = leadData.state.trim();
+      payload.State = state.length > 2 ? state.slice(0, 2).toUpperCase() : state.toUpperCase();
     }
 
     if (leadData.postal_code && leadData.postal_code.trim()) {
       payload.Zip = leadData.postal_code.trim();
     }
+
+    // DOB — API format MM/dd/yyyy
+    const dob = formatDOB(leadData.date_of_birth);
+    if (dob) payload.DOB = dob;
+
+    // --- Qualification / specification details (saved in DB when user marks Qualified) ---
+    // TAX_RELIEF_TAX_AMOUNT: Tax relief amount requested by the client (string)
+    if (leadData.estimated_debt != null && leadData.estimated_debt !== '') {
+      const num = typeof leadData.estimated_debt === 'number' ? leadData.estimated_debt : parseFloat(leadData.estimated_debt);
+      if (!Number.isNaN(num)) payload.TAX_RELIEF_TAX_AMOUNT = String(num);
+    }
+
+    // TAX_RELIEF_TAX_AGENCY: FEDERAL, STATE, or FEDERAL,STATE
+    const taxAgency = mapTaxAgency(leadData.tax_type);
+    if (taxAgency) payload.TAX_RELIEF_TAX_AGENCY = taxAgency;
+
+    // Unfiled years — no dedicated API field; send in Notes (API: Notes optional)
+    const unfiledYearsStr =
+      leadData.unfiled_years != null
+        ? Array.isArray(leadData.unfiled_years)
+          ? leadData.unfiled_years.join(', ')
+          : String(leadData.unfiled_years).trim()
+        : '';
+    const notesParts: string[] = [];
+    if (unfiledYearsStr) notesParts.push(`Unfiled years: ${unfiledYearsStr}`);
+    if (leadData.notes && String(leadData.notes).trim()) notesParts.push(String(leadData.notes).trim());
+    if (notesParts.length) payload.Notes = notesParts.join('\n');
 
     const result = await pushToIrsLogics(payload);
     

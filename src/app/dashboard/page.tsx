@@ -933,6 +933,8 @@ export default function DashboardPage() {
   const isManuallyAdvancingRef = useRef(false);
   // Ref to track current call state (for use in closures)
   const currentCallRef = useRef<any>(null);
+  // Power dialer: true when a call just ended (so we advance only on call end + disposition saved, not on disposition click)
+  const callJustEndedRef = useRef(false);
   // State for call duration display (updates every second)
   const [callDuration, setCallDuration] = useState<number>(0);
   // State for mute status
@@ -2204,6 +2206,7 @@ export default function DashboardPage() {
 
             session.on('terminated', () => {
               setWebPhoneStatus('Call ended');
+              callJustEndedRef.current = true;
 
               // Calculate call duration and save activity (always save, even if duration is 0)
               if (firstLead?.id) {
@@ -2235,6 +2238,7 @@ export default function DashboardPage() {
 
             session.on('rejected', () => {
               setWebPhoneStatus('Call rejected');
+              callJustEndedRef.current = true;
 
               // Save activity for rejected call
               if (firstLead?.id && callStartTime) {
@@ -2259,6 +2263,7 @@ export default function DashboardPage() {
 
             session.on('failed', () => {
               setWebPhoneStatus('Call failed');
+              callJustEndedRef.current = true;
 
               // Save activity for failed call
               if (firstLead?.id && callStartTime) {
@@ -2296,39 +2301,27 @@ export default function DashboardPage() {
     }
   }, [webPhone, webPhoneReady, isPowerDialing, currentCall, selectedLeads, statusFilter, dateFilterMode, selectedDate, selectedMonth, viewMode, leads, activeView]);
 
-  // Move to next lead after call ends (when power dialing)
-  // DISABLED: Agent must select a disposition before advancing. Do not auto-advance on hang up or End Call.
+  // Move to next lead only when call has ended AND disposition was saved (not when user just clicks disposition)
   useEffect(() => {
-    if (isPowerDialing && !currentCall) {
-      return; // Require disposition; never auto-advance when call ends (prospect hung up or user clicked End Call)
-    }
+    // Only run advance logic when we're in power dialing, no active call, and a call *just* ended (not initial state)
+    if (!isPowerDialing || currentCall) return;
+    if (!callJustEndedRef.current) return;
 
-    // Only check flag at the start - if it's set, skip this run
-    // But allow it to proceed if flag gets cleared during the timeout
-    const wasManuallyAdvancing = isManuallyAdvancingRef.current;
-
-    if (isPowerDialing && !currentCall && powerDialingQueueSnapshotRef.current.length > 0 && powerDialingIndex < powerDialingQueueSnapshotRef.current.length && webPhone && webPhoneReady) {
-      // If we were manually advancing, wait a bit longer to see if it completes
-      const delay = wasManuallyAdvancing ? 1000 : 3000;
-
-      // Call just ended naturally (not from manual advancement), wait a moment then move to next lead
+    if (powerDialingQueueSnapshotRef.current.length > 0 && powerDialingIndex < powerDialingQueueSnapshotRef.current.length && webPhone && webPhoneReady) {
+      // Wait a moment after call ends before deciding to advance
       const timer = setTimeout(() => {
-        // Check flag again - if it's still set, skip (manual advancement is in progress)
-        // But if it was cleared, proceed with auto-advance
-        if (isManuallyAdvancingRef.current) {
-          console.log('useEffect: Skipping auto-advance - manual advancement still in progress');
+        // Only advance if disposition was saved for the current lead (status no longer 'New')
+        if (activeLead?.status === 'New') {
+          callJustEndedRef.current = false;
+          toast.info('Select a disposition to move to the next call.');
           return;
         }
 
-        // If flag was set but is now cleared, it means manual advancement completed and dial started
-        // The currentCall check below will prevent duplicate dialing, so we can proceed
-        if (wasManuallyAdvancing && isManuallyAdvancingRef.current === false) {
-          console.log('useEffect: Manual advancement completed, proceeding with auto-advance (currentCall check will prevent duplicates)');
-        }
+        callJustEndedRef.current = false; // Consumed; we're advancing
         // CRITICAL: Use the IMMUTABLE snapshot from ref - this is the source of truth
         const snapshot = powerDialingQueueSnapshotRef.current;
         const nextIndex = powerDialingIndex + 1;
-        console.log('useEffect: Moving to next lead. Index:', nextIndex, 'Snapshot length:', snapshot.length);
+        console.log('useEffect: Call ended and disposition saved. Moving to next lead. Index:', nextIndex, 'Snapshot length:', snapshot.length);
 
         if (nextIndex < snapshot.length) {
           setPowerDialingIndex(nextIndex);
@@ -2387,6 +2380,7 @@ export default function DashboardPage() {
 
                 session.on('terminated', () => {
                   setWebPhoneStatus('Call ended');
+                  callJustEndedRef.current = true;
 
                   // Calculate call duration and save activity (always save, even if duration is 0)
                   if (nextLead?.id) {
@@ -2418,6 +2412,7 @@ export default function DashboardPage() {
 
                 session.on('rejected', () => {
                   setWebPhoneStatus('Call rejected');
+                  callJustEndedRef.current = true;
 
                   // Save activity for rejected call
                   if (nextLead?.id && callStartTime) {
@@ -2442,6 +2437,7 @@ export default function DashboardPage() {
 
                 session.on('failed', () => {
                   setWebPhoneStatus('Call failed');
+                  callJustEndedRef.current = true;
 
                   // Save activity for failed call
                   if (nextLead?.id && callStartTime) {
@@ -2468,7 +2464,6 @@ export default function DashboardPage() {
                 setWebPhoneStatus(`Dial failed: ${error.message || 'Unknown error'}`);
                 setCurrentCall(null);
                 currentCallRef.current = null;
-                isManuallyAdvancingRef.current = false; // Clear flag on error
               }
             } else {
               console.warn('useEffect: Auto-dial conditions not met - call not started:', {
@@ -2481,8 +2476,6 @@ export default function DashboardPage() {
                 nextIndex,
                 snapshotLength: powerDialingQueueSnapshotRef.current.length
               });
-              // Clear flag if conditions aren't met
-              isManuallyAdvancingRef.current = false;
             }
           }, 2000);
         } else {
@@ -2492,7 +2485,7 @@ export default function DashboardPage() {
           setPowerDialingIndex(0);
           setPowerDialingLeads([]);
           powerDialingQueueSnapshotRef.current = [];
-          isManuallyAdvancingRef.current = false; // Clear the flag
+          callJustEndedRef.current = false;
           setWebPhoneStatus('Power dialing complete');
           toast.success(`Power dialing complete! Dialed ${totalDialed} leads.`);
         }
@@ -2500,7 +2493,7 @@ export default function DashboardPage() {
 
       return () => clearTimeout(timer);
     }
-  }, [currentCall, isPowerDialing, powerDialingIndex, powerDialingLeads, webPhone, webPhoneReady]);
+  }, [currentCall, isPowerDialing, powerDialingIndex, powerDialingLeads, activeLead, webPhone, webPhoneReady]);
 
   // Auto-dial when active lead changes OR when a dial is requested from contacts list
   useEffect(() => {
@@ -3207,6 +3200,10 @@ export default function DashboardPage() {
           lead_age: activeLead.lead_age,
           source: activeLead.source,
           status: activeLead.status,
+          // Qualification / specification details (saved when user marks lead Qualified)
+          estimated_debt: qualificationTaxDebt || (activeLead as any).estimated_debt,
+          unfiled_years: qualificationTaxYear || (Array.isArray((activeLead as any).unfiled_years) ? (activeLead as any).unfiled_years.join(', ') : (activeLead as any).unfiled_years),
+          tax_type: qualificationTaxType || ((activeLead as any).tags || []).find((t: string) => t.startsWith('TaxType:'))?.replace('TaxType:', ''),
         }),
       });
 
@@ -3470,229 +3467,10 @@ export default function DashboardPage() {
       // This function only handles disposition changes to the database
       // When called with fromIRSLogicsButton=true, it means IRS Logics submission already succeeded
 
-      // If power dialing is active, move to next lead after disposition (and end call if still connected)
-      // Advancement happens on disposition only—never on hang up or End Call. If user already ended call, we still advance.
+      // Power dialer: do NOT advance or end call here. Advance only when call has ended AND disposition was already saved (useEffect).
       const isQualifiedStatus = statusToSave === 'Qualified' || statusToSave === 'Qualified Lead';
-      if (isPowerDialing && activeLead?.id && (fromIRSLogicsButton || !isQualifiedStatus)) {
-        try {
-          // If call is still active, save call activity and end it
-          if (currentCall) {
-            if (callStartTime) {
-              const duration = Math.floor((new Date().getTime() - callStartTime.getTime()) / 1000);
-              await saveActivity(
-                activeLead.id,
-                'call',
-                `Call ended - Duration: ${formatCallDuration(duration)}`,
-                {
-                  duration_seconds: duration,
-                  phone_number: activeLead.phone,
-                  call_type: 'outbound',
-                }
-              );
-            }
-
-            const session = currentCall as any;
-            const sessionState = session.state || (session as any).sessionState;
-
-            if (sessionState === 'Initial' || sessionState === 'Establishing') {
-              if (session.cancel) {
-                await session.cancel();
-              } else if (session.bye) {
-                await session.bye();
-              }
-            } else {
-              if (session.bye) {
-                await session.bye();
-              } else if (session.terminate) {
-                await session.terminate();
-              }
-            }
-
-            setCallStartTime(null);
-            setCurrentCall(null);
-            currentCallRef.current = null;
-            setWebPhoneStatus('Call ended');
-          }
-
-          // Move to next lead and auto-dial (whether or not call was still active—disposition always advances)
-          // CRITICAL: Set flag to prevent useEffect from also trying to advance
-          isManuallyAdvancingRef.current = true;
-
-          // Use the snapshot ref as source of truth
-          const snapshot = powerDialingQueueSnapshotRef.current;
-          const nextIndex = powerDialingIndex + 1;
-          console.log('handleSubmitDisposition: Moving to next lead. Index:', nextIndex, 'Snapshot length:', snapshot.length);
-
-          if (nextIndex < snapshot.length) {
-            setPowerDialingIndex(nextIndex);
-            const nextLead = snapshot[nextIndex];
-            if (!nextLead) {
-              console.error('CRITICAL ERROR: Next lead not found at index', nextIndex, 'in snapshot array of length', snapshot.length);
-              console.error('Snapshot contents:', snapshot.map((l, i) => ({ index: i, id: l.id, name: `${l.first_name} ${l.last_name}` })));
-              setIsPowerDialing(false);
-              setPowerDialingLeads([]);
-              powerDialingQueueSnapshotRef.current = [];
-              isManuallyAdvancingRef.current = false;
-              setWebPhoneStatus('Error: Lead not found in queue');
-              return;
-            }
-            console.log('handleSubmitDisposition: Setting next lead from snapshot:', nextLead.id, `${nextLead.first_name} ${nextLead.last_name}`, 'Phone:', nextLead.phone);
-            setActiveLead(nextLead);
-
-            // Auto-dial the next lead after a short delay
-            setTimeout(async () => {
-              // Use ref to check currentCall (avoids closure issues)
-              const hasActiveCall = currentCallRef.current !== null;
-              if (nextLead?.phone && webPhone && webPhoneReady && !hasActiveCall) {
-                try {
-                  // Clear the flag immediately when dial starts - this allows useEffect to work for future calls
-                  isManuallyAdvancingRef.current = false;
-                  console.log('handleSubmitDisposition: Cleared manual advancement flag - dial starting');
-
-                  // Use snapshot length for accurate count
-                  setWebPhoneStatus(`Dialing ${nextLead.phone}... (${nextIndex + 1}/${snapshot.length})`);
-                  console.log(`handleSubmitDisposition: Dialing lead ${nextIndex + 1} of ${snapshot.length} from snapshot`);
-                  const cleanNumber = nextLead.phone.replace(/\D/g, '');
-                  const session = webPhone.userAgent.invite(cleanNumber, {
-                    fromNumber: cleanNumber,
-                  });
-
-                  setCurrentCall(session);
-                  currentCallRef.current = session;
-
-                  session.on('accepted', () => {
-                    setWebPhoneStatus('Call connected');
-                    setCallStartTime(new Date());
-                  });
-
-                  session.on('progress', () => {
-                    setWebPhoneStatus('Ringing...');
-                  });
-
-                  session.on('terminated', () => {
-                    setWebPhoneStatus('Call ended');
-
-                    // Calculate call duration and save activity (always save, even if duration is 0)
-                    if (nextLead?.id) {
-                      const duration = callStartTime
-                        ? Math.floor((new Date().getTime() - callStartTime.getTime()) / 1000)
-                        : 0;
-
-                      saveActivity(
-                        nextLead.id,
-                        'call',
-                        `Call ended${duration > 0 ? ` - Duration: ${formatCallDuration(duration)}` : ''}`,
-                        {
-                          duration_seconds: duration,
-                          phone_number: nextLead.phone,
-                          call_type: 'outbound',
-                        }
-                      );
-                    }
-
-                    setCallStartTime(null);
-                    setCurrentCall(null);
-                    currentCallRef.current = null;
-                  });
-
-                  session.on('rejected', () => {
-                    setWebPhoneStatus('Call rejected');
-
-                    if (nextLead?.id) {
-                      const duration = callStartTime
-                        ? Math.floor((new Date().getTime() - callStartTime.getTime()) / 1000)
-                        : 0;
-
-                      saveActivity(
-                        nextLead.id,
-                        'call',
-                        `Call rejected${duration > 0 ? ` - Duration: ${formatCallDuration(duration)}` : ''}`,
-                        {
-                          duration_seconds: duration,
-                          phone_number: nextLead.phone,
-                          call_type: 'outbound',
-                          call_result: 'rejected',
-                        }
-                      );
-                    }
-
-                    setCallStartTime(null);
-                    setCurrentCall(null);
-                    currentCallRef.current = null;
-                  });
-
-                  session.on('failed', () => {
-                    setWebPhoneStatus('Call failed');
-
-                    if (nextLead?.id) {
-                      const duration = callStartTime
-                        ? Math.floor((new Date().getTime() - callStartTime.getTime()) / 1000)
-                        : 0;
-
-                      saveActivity(
-                        nextLead.id,
-                        'call',
-                        `Call failed${duration > 0 ? ` - Duration: ${formatCallDuration(duration)}` : ''}`,
-                        {
-                          duration_seconds: duration,
-                          phone_number: nextLead.phone,
-                          call_type: 'outbound',
-                          call_result: 'failed',
-                        }
-                      );
-                    }
-
-                    setCallStartTime(null);
-                    setCurrentCall(null);
-                    currentCallRef.current = null;
-                  });
-                } catch (error: any) {
-                  console.error('handleSubmitDisposition: Failed to dial next lead:', error);
-                  setWebPhoneStatus(`Dial failed: ${error.message || 'Unknown error'}`);
-                  setCurrentCall(null);
-                  currentCallRef.current = null;
-                  isManuallyAdvancingRef.current = false; // Clear flag on error
-                }
-              } else {
-                console.warn('handleSubmitDisposition: Auto-dial conditions not met - call not started:', {
-                  hasPhone: !!nextLead?.phone,
-                  phone: nextLead?.phone,
-                  hasWebPhone: !!webPhone,
-                  webPhoneReady,
-                  hasCurrentCall: !!currentCall,
-                  nextIndex,
-                  snapshotLength: snapshot.length
-                });
-                // Clear flag if conditions aren't met
-                isManuallyAdvancingRef.current = false;
-              }
-            }, 1500); // Wait 1.5 seconds before dialing next lead
-          } else {
-            // Finished all leads
-            setIsPowerDialing(false);
-            setPowerDialingIndex(0);
-            const totalDialed = powerDialingQueueSnapshotRef.current.length;
-            setPowerDialingLeads([]);
-            powerDialingQueueSnapshotRef.current = [];
-            isManuallyAdvancingRef.current = false; // Clear the flag
-            setWebPhoneStatus('Power dialing complete');
-            toast.success(`Power dialing complete! Dialed ${totalDialed} leads.`);
-          }
-        } catch (error: any) {
-          console.error('Error ending call in power dialer:', error);
-          // Still clear the call state
-          setCurrentCall(null);
-          currentCallRef.current = null;
-          setCallStartTime(null);
-        }
-      } else {
-        // For individual leads: only show success alert if NOT Qualified or if from IRSLogics button
-        // If Qualified was just selected, don't show alert yet - wait for IRSLogics button
-        const isQualifiedStatus = statusToSave === 'Qualified' || statusToSave === 'Qualified Lead';
-        if (!isQualifiedStatus || fromIRSLogicsButton) {
-          toast.success('Disposition saved successfully!');
-        }
-        // If Qualified and not from IRSLogics button, don't show alert - IRSLogics button will handle it
+      if (!isQualifiedStatus || fromIRSLogicsButton) {
+        toast.success('Disposition saved successfully!');
       }
     } catch (err) {
       console.error('Failed to update disposition:', err);
@@ -4460,13 +4238,23 @@ export default function DashboardPage() {
               <span>CRM Contacts</span>
             </button>
 
-            {hasOpenedContact && (
+            {(hasOpenedContact || powerDialerEnabled || isPowerDialing) && (
               <button
                 onClick={() => { setActiveView('dialer'); setIsSidebarOpen(false); }}
                 className={`nav-link w-full ${activeView === 'dialer' ? 'active' : ''}`}
               >
                 <i className="fa-solid fa-bolt w-5 flex items-center justify-center"></i>
                 <span>Power Dialer</span>
+              </button>
+            )}
+
+            {isPowerDialing && activeView !== 'dialer' && (
+              <button
+                onClick={() => { setActiveView('dialer'); setIsSidebarOpen(false); }}
+                className="nav-link w-full text-amber-400 hover:text-amber-300 hover:bg-amber-500/10"
+              >
+                <i className="fa-solid fa-arrow-left w-5 flex items-center justify-center"></i>
+                <span>Back to Power Dialer</span>
               </button>
             )}
 
@@ -6059,17 +5847,6 @@ export default function DashboardPage() {
             </>
           )
         }
-
-        {/* Mobile Floating Action Button for Dialer */}
-        {activeView !== 'dialer' && (
-          <button
-            onClick={() => setActiveView('dialer')}
-            className="fixed bottom-6 right-6 z-40 lg:hidden w-14 h-14 bg-blue-600 text-white rounded-full shadow-xl flex items-center justify-center hover:bg-blue-700 hover:scale-105 transition-all"
-            title="Open Dialer"
-          >
-            <i className="fa-solid fa-phone text-xl"></i>
-          </button>
-        )}
 
         {/* VIEW: SETTINGS */}
         {activeView === 'settings' && (
