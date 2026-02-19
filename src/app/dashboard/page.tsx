@@ -2007,20 +2007,17 @@ export default function DashboardPage() {
   }, [webPhone, webPhoneReady, activeLead, currentCall, callStartTime]);
 
   // Start Power Dialing - dial all leads sequentially
-  const startPowerDialing = useCallback(async (leadsOverride?: Lead[]) => {
+  const startPowerDialing = useCallback(async (leadsOverride?: Lead[], forceResume?: boolean) => {
     if (!webPhone || !webPhoneReady) {
       toast.warning('WebPhone is not ready. Please wait for initialization.');
       return;
     }
 
     if (isPowerDialing) {
-      // Stop power dialing
+      // Stop (pause) power dialing — keep queue and index so user can resume later
       setIsPowerDialing(false);
-      setPowerDialingIndex(0);
-      setPowerDialingLeads([]);
-      powerDialingQueueSnapshotRef.current = []; // Clear the snapshot
-      isManuallyAdvancingRef.current = false; // Clear the flag
-      isManuallyAdvancingRef.current = false; // Clear the flag
+      callJustEndedRef.current = false;
+      isManuallyAdvancingRef.current = false;
       if (currentCall) {
         try {
           const session = currentCall as any;
@@ -2049,7 +2046,93 @@ export default function DashboardPage() {
           setCallStartTime(null);
         }
       }
+      toast.info('Power dialer paused. Use "Resume Power Dialer" to continue from where you left off.');
       return;
+    }
+
+    // Resume from paused queue only when user explicitly clicks Resume
+    const snapshot = powerDialingQueueSnapshotRef.current;
+    if (forceResume && snapshot.length > 0 && powerDialingIndex < snapshot.length) {
+      const resumeLead = snapshot[powerDialingIndex];
+      if (resumeLead?.phone && webPhone && webPhoneReady) {
+        setIsPowerDialing(true);
+        setLoading(false);
+        setActiveView('dialer');
+        setActiveLead(resumeLead);
+        toast.success(`Resuming from lead ${powerDialingIndex + 1} of ${snapshot.length}`);
+        setTimeout(async () => {
+          if (!resumeLead?.phone || !webPhone || !webPhoneReady) return;
+          try {
+            setWebPhoneStatus(`Dialing ${resumeLead.phone}...`);
+            const cleanNumber = resumeLead.phone.replace(/\D/g, '');
+            if (!remoteVideoRef.current || !localVideoRef.current) {
+              toast.error('Media elements not ready. Please refresh the page.');
+              return;
+            }
+            const session = webPhone.userAgent.invite(cleanNumber, { fromNumber: cleanNumber });
+            setCurrentCall(session);
+            currentCallRef.current = session;
+            session.on('accepted', () => {
+              setWebPhoneStatus('Call connected');
+              setCallStartTime(new Date());
+            });
+            session.on('progress', () => setWebPhoneStatus('Ringing...'));
+            session.on('terminated', () => {
+              setWebPhoneStatus('Call ended');
+              callJustEndedRef.current = true;
+              if (resumeLead?.id) {
+                const duration = callStartTime ? Math.floor((new Date().getTime() - callStartTime.getTime()) / 1000) : 0;
+                saveActivity(resumeLead.id, 'call', `Call ended${duration > 0 ? ` - Duration: ${formatCallDuration(duration)}` : ''}`, {
+                  duration_seconds: duration,
+                  phone_number: resumeLead.phone,
+                  call_type: 'outbound',
+                });
+              }
+              setCallStartTime(null);
+              setCurrentCall(null);
+              currentCallRef.current = null;
+            });
+            session.on('rejected', () => {
+              setWebPhoneStatus('Call rejected');
+              callJustEndedRef.current = true;
+              if (resumeLead?.id && callStartTime) {
+                const duration = Math.floor((new Date().getTime() - callStartTime.getTime()) / 1000);
+                saveActivity(resumeLead.id, 'call', `Call rejected - Duration: ${formatCallDuration(duration)}`, {
+                  duration_seconds: duration,
+                  phone_number: resumeLead.phone,
+                  call_type: 'outbound',
+                  call_result: 'rejected',
+                });
+              }
+              setCallStartTime(null);
+              setCurrentCall(null);
+              currentCallRef.current = null;
+            });
+            session.on('failed', () => {
+              setWebPhoneStatus('Call failed');
+              callJustEndedRef.current = true;
+              if (resumeLead?.id && callStartTime) {
+                const duration = Math.floor((new Date().getTime() - callStartTime.getTime()) / 1000);
+                saveActivity(resumeLead.id, 'call', `Call failed - Duration: ${formatCallDuration(duration)}`, {
+                  duration_seconds: duration,
+                  phone_number: resumeLead.phone,
+                  call_type: 'outbound',
+                  call_result: 'failed',
+                });
+              }
+              setCallStartTime(null);
+              setCurrentCall(null);
+              currentCallRef.current = null;
+            });
+          } catch (error: any) {
+            console.error('Failed to dial on resume:', error);
+            setWebPhoneStatus(`Dial failed: ${error.message || 'Unknown error'}`);
+            setCurrentCall(null);
+            currentCallRef.current = null;
+          }
+        }, 500);
+        return;
+      }
     }
 
     try {
@@ -2299,7 +2382,7 @@ export default function DashboardPage() {
       toast.error('Failed to start power dialing. Please try again.');
       setLoading(false);
     }
-  }, [webPhone, webPhoneReady, isPowerDialing, currentCall, selectedLeads, statusFilter, dateFilterMode, selectedDate, selectedMonth, viewMode, leads, activeView]);
+  }, [webPhone, webPhoneReady, isPowerDialing, currentCall, selectedLeads, statusFilter, dateFilterMode, selectedDate, selectedMonth, viewMode, leads, activeView, powerDialingIndex]);
 
   // Move to next: for qualified we advance only when call has ended AND disposition saved; for non-qualified we advance as soon as disposition is saved (call is ended from disposition handler)
   useEffect(() => {
@@ -5681,24 +5764,36 @@ export default function DashboardPage() {
                       </p>
                     </div>
                   </div>
-                  <button
-                    onClick={() => startPowerDialing()}
-                    disabled={!webPhoneReady || loading}
-                    className={`px-6 py-3 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-lg ${isPowerDialing
-                      ? 'bg-red-600 hover:bg-red-700 text-white'
-                      : 'bg-amber-600 hover:bg-amber-700 text-white'
-                      } disabled:opacity-50 disabled:cursor-not-allowed`}
-                  >
-                    {isPowerDialing ? (
-                      <>
-                        <i className="fa-solid fa-stop"></i> Stop Power Dialing
-                      </>
-                    ) : (
-                      <>
-                        <i className="fa-solid fa-bolt"></i> Start Power Dialing
-                      </>
+                  <div className="flex items-center gap-2">
+                    {powerDialingLeads.length > 0 && !isPowerDialing && powerDialingIndex < powerDialingLeads.length && (
+                      <button
+                        onClick={() => startPowerDialing(undefined, true)}
+                        disabled={!webPhoneReady || loading}
+                        className="px-6 py-3 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-lg bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                        title={`Resume from lead ${powerDialingIndex + 1} of ${powerDialingLeads.length}`}
+                      >
+                        <i className="fa-solid fa-play"></i> Resume Power Dialer ({powerDialingLeads.length - powerDialingIndex} left)
+                      </button>
                     )}
-                  </button>
+                    <button
+                      onClick={() => startPowerDialing()}
+                      disabled={!webPhoneReady || loading}
+                      className={`px-6 py-3 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-lg ${isPowerDialing
+                        ? 'bg-red-600 hover:bg-red-700 text-white'
+                        : 'bg-amber-600 hover:bg-amber-700 text-white'
+                        } disabled:opacity-50 disabled:cursor-not-allowed`}
+                    >
+                      {isPowerDialing ? (
+                        <>
+                          <i className="fa-solid fa-stop"></i> Stop Power Dialing
+                        </>
+                      ) : (
+                        <>
+                          <i className="fa-solid fa-bolt"></i> Start Power Dialing
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Pagination / Status Footer */}
