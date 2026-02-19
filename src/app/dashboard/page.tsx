@@ -935,6 +935,8 @@ export default function DashboardPage() {
   const currentCallRef = useRef<any>(null);
   // Power dialer: true when we should advance to next (for qualified: set only when call ends; for non-qualified: set when disposition is saved, and we end call from disposition handler)
   const callJustEndedRef = useRef(false);
+  // Bump this when user saves disposition with call already ended so the advance effect re-runs and moves to next lead
+  const [powerDialerAdvanceTrigger, setPowerDialerAdvanceTrigger] = useState(0);
   // State for call duration display (updates every second)
   const [callDuration, setCallDuration] = useState<number>(0);
   // State for mute status
@@ -2400,16 +2402,16 @@ export default function DashboardPage() {
     if (!callJustEndedRef.current) return;
 
     if (powerDialingQueueSnapshotRef.current.length > 0 && powerDialingIndex < powerDialingQueueSnapshotRef.current.length && webPhone && webPhoneReady) {
-      // Wait a moment after call ends before deciding to advance
+      const dispositionAlreadySaved = activeLead?.status !== 'New';
+      const delayMs = dispositionAlreadySaved ? 600 : 3000;
       const timer = setTimeout(() => {
-        // Only advance if disposition was saved for the current lead (status no longer 'New')
         if (activeLead?.status === 'New') {
           callJustEndedRef.current = false;
           toast.info('Select a disposition to move to the next call.');
           return;
         }
 
-        callJustEndedRef.current = false; // Consumed; we're advancing
+        callJustEndedRef.current = false;
         // CRITICAL: Use the IMMUTABLE snapshot from ref - this is the source of truth
         const snapshot = powerDialingQueueSnapshotRef.current;
         const nextIndex = powerDialingIndex + 1;
@@ -2581,11 +2583,11 @@ export default function DashboardPage() {
           setWebPhoneStatus('Power dialing complete');
           toast.success(`Power dialing complete! Dialed ${totalDialed} leads.`);
         }
-      }, 3000); // Wait 3 seconds after call ends before next dial
+      }, delayMs);
 
       return () => clearTimeout(timer);
     }
-  }, [currentCall, isPowerDialing, powerDialingIndex, powerDialingLeads, activeLead, webPhone, webPhoneReady]);
+  }, [currentCall, isPowerDialing, powerDialingIndex, powerDialingLeads, activeLead, webPhone, webPhoneReady, powerDialerAdvanceTrigger]);
 
   // Auto-dial when active lead changes OR when a dial is requested from contacts list
   useEffect(() => {
@@ -3590,6 +3592,7 @@ export default function DashboardPage() {
           }
         } else {
           callJustEndedRef.current = true;
+          setPowerDialerAdvanceTrigger((t) => t + 1);
         }
       }
     } catch (err) {
