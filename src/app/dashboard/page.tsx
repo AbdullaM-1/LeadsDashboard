@@ -969,10 +969,20 @@ export default function DashboardPage() {
   const [qualificationTaxDebt, setQualificationTaxDebt] = useState<string>('');
   const [qualificationTaxYear, setQualificationTaxYear] = useState<string>('');
   const [qualificationTaxType, setQualificationTaxType] = useState<string>('');
-  const [showQualificationForm, setShowQualificationForm] = useState<boolean>(false);
 
+  // Sync qualification fields from active lead when switching leads
   useEffect(() => {
-    setShowQualificationForm(false);
+    if (!activeLead) {
+      setQualificationTaxDebt('');
+      setQualificationTaxYear('');
+      setQualificationTaxType('');
+      return;
+    }
+    const lead = activeLead as any;
+    setQualificationTaxDebt(lead.estimated_debt != null && lead.estimated_debt !== '' ? String(lead.estimated_debt) : '');
+    setQualificationTaxYear(Array.isArray(lead.unfiled_years) ? lead.unfiled_years.join(', ') : (lead.unfiled_years ?? ''));
+    const taxTag = (lead.tags || []).find((t: string) => t.startsWith('TaxType:'));
+    setQualificationTaxType(taxTag ? taxTag.replace('TaxType:', '') : '');
   }, [activeLead?.id]);
 
   // Overview Metrics State
@@ -5108,121 +5118,102 @@ export default function DashboardPage() {
 
                 {/* Dispositions - fills remaining height, scrolls internally */}
                 <div className="flex-1 min-h-0 overflow-y-auto p-6 bg-slate-50/30 pb-24 lg:pb-6">
-                  {showQualificationForm ? (
-                    <>
-                      <div className="flex items-center gap-2 mb-4">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowQualificationForm(false);
-                            setSelectedDisposition('');
-                          }}
-                          className="p-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 text-sm font-bold flex items-center gap-1.5 transition-all"
-                        >
-                          <i className="fa-solid fa-arrow-left"></i> Back
-                        </button>
-                        <h4 className="text-sm font-bold text-slate-900">Qualification Details</h4>
-                      </div>
-                      <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-                        <div className="flex items-center gap-2 mb-4 border-b border-slate-50 pb-4">
-                          <div className="w-7 h-7 bg-green-50 rounded-lg flex items-center justify-center text-green-600">
-                            <i className="fa-solid fa-check-to-slot text-xs"></i>
-                          </div>
-                          <h5 className="font-bold text-sm">Qualification Details</h5>
+                  <>
+                    <div className="mb-6">
+                      <h4 className="text-sm font-bold text-slate-900 mb-1">Select Outcome <span className="text-red-500">*</span></h4>
+                      <p className="text-[11px] text-slate-500">You must disposition this lead to move to the next item in queue.</p>
+                      {bzAttemptCount > 0 && (
+                        <p className="text-[11px] text-amber-600 font-medium mt-1.5 flex items-center gap-1">
+                          <i className="fa-solid fa-phone-slash text-amber-500"></i>
+                          BZ attempts: {bzAttemptCount} {bzAttemptCount >= 2 && <span className="text-amber-700">(3rd will auto-convert to NW#)</span>}
+                        </p>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 mb-6">
+                      {DISPOSITION_OPTIONS.map((option) => {
+                        const isActive = selectedDisposition === option;
+                        const isQualified = option === 'Qualified';
+                        return (
+                          <button
+                            key={option}
+                            onClick={async () => {
+                              if (isQualified) {
+                                setSelectedDisposition('Qualified');
+                                return;
+                              }
+                              setSelectedDisposition(option);
+                              if (activeLead) {
+                                await handleSubmitDisposition(option);
+                              }
+                            }}
+                            className={`p-2.5 rounded-xl text-[11px] font-bold transition-all border ${isActive
+                              ? 'bg-indigo-600 text-white border-indigo-700 shadow-md shadow-indigo-200'
+                              : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-400 hover:text-indigo-600'
+                              }`}
+                          >
+                            {option}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Qualification Details - always on display */}
+                    <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+                      <div className="flex items-center gap-2 mb-4 border-b border-slate-50 pb-4">
+                        <div className="w-7 h-7 bg-green-50 rounded-lg flex items-center justify-center text-green-600">
+                          <i className="fa-solid fa-check-to-slot text-xs"></i>
                         </div>
-                        <div className="space-y-4">
-                          <div>
-                            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">Tax Debt</label>
-                            <div className="relative">
-                              <span className="absolute left-4 top-3.5 text-slate-400 text-sm font-bold">$</span>
-                              <input
-                                type="number"
-                                value={qualificationTaxDebt}
-                                onChange={(e) => setQualificationTaxDebt(e.target.value)}
-                                placeholder="0.00"
-                                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 pl-8 text-sm outline-none focus:ring-2 focus:ring-blue-100 placeholder:text-slate-300 font-medium"
-                              />
-                            </div>
-                          </div>
-                          <div>
-                            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">Tax Year(s)</label>
+                        <h5 className="font-bold text-sm">Qualification Details</h5>
+                      </div>
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">Tax Debt</label>
+                          <div className="relative">
+                            <span className="absolute left-4 top-3.5 text-slate-400 text-sm font-bold">$</span>
                             <input
-                              type="text"
-                              value={qualificationTaxYear}
-                              onChange={(e) => setQualificationTaxYear(e.target.value)}
-                              placeholder="e.g. 2018, 2019, 2021"
-                              className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm outline-none focus:ring-2 focus:ring-blue-100 placeholder:text-slate-300 font-medium"
+                              type="number"
+                              value={qualificationTaxDebt}
+                              onChange={(e) => setQualificationTaxDebt(e.target.value)}
+                              placeholder="0.00"
+                              className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 pl-8 text-sm outline-none focus:ring-2 focus:ring-blue-100 placeholder:text-slate-300 font-medium"
                             />
                           </div>
-                          <div>
-                            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">Tax Type</label>
-                            <div className="flex gap-2">
-                              {['Federal', 'State', 'Both'].map((type) => (
-                                <label key={type} className={`flex-1 cursor-pointer border rounded-xl p-2 text-center text-xs font-bold transition-all ${
-                                  qualificationTaxType === type
-                                    ? 'bg-green-600 text-white border-green-600 shadow-sm'
-                                    : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
-                                }`}>
-                                  <input
-                                    type="radio"
-                                    name="taxType"
-                                    value={type}
-                                    checked={qualificationTaxType === type}
-                                    onChange={(e) => setQualificationTaxType(e.target.value)}
-                                    className="hidden"
-                                  />
-                                  {type}
-                                </label>
-                              ))}
-                            </div>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">Tax Year(s)</label>
+                          <input
+                            type="text"
+                            value={qualificationTaxYear}
+                            onChange={(e) => setQualificationTaxYear(e.target.value)}
+                            placeholder="e.g. 2018, 2019, 2021"
+                            className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm outline-none focus:ring-2 focus:ring-blue-100 placeholder:text-slate-300 font-medium"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase mb-2">Tax Type</label>
+                          <div className="flex gap-2">
+                            {['Federal', 'State', 'Both'].map((type) => (
+                              <label key={type} className={`flex-1 cursor-pointer border rounded-xl p-2 text-center text-xs font-bold transition-all ${
+                                qualificationTaxType === type
+                                  ? 'bg-green-600 text-white border-green-600 shadow-sm'
+                                  : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                              }`}>
+                                <input
+                                  type="radio"
+                                  name="taxType"
+                                  value={type}
+                                  checked={qualificationTaxType === type}
+                                  onChange={(e) => setQualificationTaxType(e.target.value)}
+                                  className="hidden"
+                                />
+                                {type}
+                              </label>
+                            ))}
                           </div>
                         </div>
                       </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="mb-6">
-                        <h4 className="text-sm font-bold text-slate-900 mb-1">Select Outcome <span className="text-red-500">*</span></h4>
-                        <p className="text-[11px] text-slate-500">You must disposition this lead to move to the next item in queue.</p>
-                        {bzAttemptCount > 0 && (
-                          <p className="text-[11px] text-amber-600 font-medium mt-1.5 flex items-center gap-1">
-                            <i className="fa-solid fa-phone-slash text-amber-500"></i>
-                            BZ attempts: {bzAttemptCount} {bzAttemptCount >= 2 && <span className="text-amber-700">(3rd will auto-convert to NW#)</span>}
-                          </p>
-                        )}
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 mb-8">
-                        {DISPOSITION_OPTIONS.map((option) => {
-                          const isActive = selectedDisposition === option;
-                          const isQualified = option === 'Qualified';
-                          return (
-                            <button
-                              key={option}
-                              onClick={async () => {
-                                if (isQualified) {
-                                  setSelectedDisposition('Qualified');
-                                  setShowQualificationForm(true);
-                                  return;
-                                }
-                                setSelectedDisposition(option);
-                                if (isPowerDialing && activeLead) {
-                                  await handleSubmitDisposition(option);
-                                } else if (!isPowerDialing && activeLead) {
-                                  await handleSubmitDisposition(option);
-                                }
-                              }}
-                              className={`p-2.5 rounded-xl text-[11px] font-bold transition-all border ${isActive
-                                ? 'bg-indigo-600 text-white border-indigo-700 shadow-md shadow-indigo-200'
-                                : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-400 hover:text-indigo-600'
-                                }`}
-                            >
-                              {option}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </>
-                  )}
+                    </div>
+                  </>
                 </div>
 
                 {/* Final Submission - Show only when "Qualified" is selected as disposition */}
