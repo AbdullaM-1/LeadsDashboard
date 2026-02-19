@@ -933,7 +933,7 @@ export default function DashboardPage() {
   const isManuallyAdvancingRef = useRef(false);
   // Ref to track current call state (for use in closures)
   const currentCallRef = useRef<any>(null);
-  // Power dialer: true when a call just ended (so we advance only on call end + disposition saved, not on disposition click)
+  // Power dialer: true when we should advance to next (for qualified: set only when call ends; for non-qualified: set when disposition is saved, and we end call from disposition handler)
   const callJustEndedRef = useRef(false);
   // State for call duration display (updates every second)
   const [callDuration, setCallDuration] = useState<number>(0);
@@ -2301,9 +2301,8 @@ export default function DashboardPage() {
     }
   }, [webPhone, webPhoneReady, isPowerDialing, currentCall, selectedLeads, statusFilter, dateFilterMode, selectedDate, selectedMonth, viewMode, leads, activeView]);
 
-  // Move to next lead only when call has ended AND disposition was saved (not when user just clicks disposition)
+  // Move to next: for qualified we advance only when call has ended AND disposition saved; for non-qualified we advance as soon as disposition is saved (call is ended from disposition handler)
   useEffect(() => {
-    // Only run advance logic when we're in power dialing, no active call, and a call *just* ended (not initial state)
     if (!isPowerDialing || currentCall) return;
     if (!callJustEndedRef.current) return;
 
@@ -3467,10 +3466,38 @@ export default function DashboardPage() {
       // This function only handles disposition changes to the database
       // When called with fromIRSLogicsButton=true, it means IRS Logics submission already succeeded
 
-      // Power dialer: do NOT advance or end call here. Advance only when call has ended AND disposition was already saved (useEffect).
+      // Power dialer behavior:
+      // - Qualified: advance only when call has ended AND disposition saved (useEffect handles this; do nothing here).
+      // - Non-qualified: advance immediately — end the call if still active so the dialer moves to next without waiting for End Call.
       const isQualifiedStatus = statusToSave === 'Qualified' || statusToSave === 'Qualified Lead';
       if (!isQualifiedStatus || fromIRSLogicsButton) {
         toast.success('Disposition saved successfully!');
+      }
+
+      if (isPowerDialing && !isQualifiedStatus) {
+        const session = currentCall;
+        if (session) {
+          try {
+            setWebPhoneStatus('Ending call...');
+            const s = session as any;
+            const sessionState = s.state || s.sessionState;
+            if (sessionState === 'Initial' || sessionState === 'Establishing') {
+              if (s.cancel) await s.cancel();
+              else if (s.bye) await s.bye();
+            } else {
+              if (s.bye) await s.bye();
+              else if (s.terminate) await s.terminate();
+            }
+          } catch (err) {
+            console.error('Error ending call for power dialer advance:', err);
+            setCurrentCall(null);
+            currentCallRef.current = null;
+            setCallStartTime(null);
+            callJustEndedRef.current = true;
+          }
+        } else {
+          callJustEndedRef.current = true;
+        }
       }
     } catch (err) {
       console.error('Failed to update disposition:', err);
