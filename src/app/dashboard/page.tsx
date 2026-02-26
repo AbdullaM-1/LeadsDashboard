@@ -163,6 +163,97 @@ const formatStatusForDisplay = (status?: string | null) => {
   return getDisplayStatusFromDb(status);
 };
 
+const normalizePhoneForMatch = (value?: string | null) => (value || '').replace(/\D/g, '').slice(-10);
+
+// RingSense transcript may be stored either in `transcription` column or inside raw `insights` payload.
+const getTranscriptSegmentsFromRecording = (recording: any): any[] => {
+  if (!recording) return [];
+  if (Array.isArray(recording.transcription)) return recording.transcription;
+  const insightsRoot = recording.insights?.insights || recording.insights;
+  const transcript = insightsRoot?.Transcript || insightsRoot?.transcript;
+  return Array.isArray(transcript) ? transcript : [];
+};
+
+const hasSummaryInRecording = (recording: any): boolean => !!getSummaryFromRecording(recording);
+
+const findBestRecordingMatch = (
+  recordings: any[],
+  params: {
+    phoneNumber?: string;
+    callType?: string;
+    activityCreatedAt?: string;
+    callStartedAt?: string;
+    callEndedAt?: string;
+    durationSeconds?: number;
+  }
+) => {
+  if (!recordings || recordings.length === 0) return null;
+
+  const normalizedPhone = normalizePhoneForMatch(params.phoneNumber);
+  const targetStartTime = params.callStartedAt
+    ? new Date(params.callStartedAt).getTime()
+    : params.activityCreatedAt
+      ? new Date(params.activityCreatedAt).getTime()
+      : null;
+  const targetEndTime = params.callEndedAt ? new Date(params.callEndedAt).getTime() : null;
+  const expectedDuration = params.durationSeconds || 0;
+  const expectedDirection = params.callType?.toLowerCase();
+
+  const scored = recordings.map((recording) => {
+    let score = 0;
+    const transcriptSegments = getTranscriptSegmentsFromRecording(recording);
+    const hasTranscript = transcriptSegments.length > 0;
+    const hasSummary = hasSummaryInRecording(recording);
+    if (hasTranscript) score += 40;
+    if (hasSummary) score += 10;
+
+    const fromNormalized = normalizePhoneForMatch(recording.from_number);
+    const toNormalized = normalizePhoneForMatch(recording.to_number);
+    const phoneMatches = !!normalizedPhone && (fromNormalized === normalizedPhone || toNormalized === normalizedPhone);
+    if (phoneMatches) score += 50;
+
+    const direction = String(recording.direction || '').toLowerCase();
+    if (expectedDirection && direction.includes(expectedDirection)) score += 10;
+
+    const recordingStartTime = recording.start_time ? new Date(recording.start_time).getTime() : null;
+    const recordingCreatedTime = recording.created_at ? new Date(recording.created_at).getTime() : null;
+    const referenceTime = recordingStartTime || recordingCreatedTime;
+    if (referenceTime && targetStartTime) {
+      const diffMinutes = Math.abs(referenceTime - targetStartTime) / 60000;
+      if (diffMinutes <= 5) score += 30;
+      else if (diffMinutes <= 15) score += 20;
+      else if (diffMinutes <= 30) score += 10;
+      else if (diffMinutes > 120) score -= 20;
+    }
+
+    if (targetEndTime && referenceTime) {
+      const endDiffMinutes = Math.abs(referenceTime - targetEndTime) / 60000;
+      if (endDiffMinutes <= 10) score += 8;
+    }
+
+    const recordingDuration = parseInt(String(recording.duration || 0), 10) || 0;
+    if (expectedDuration > 0 && recordingDuration > 0) {
+      const durationDiff = Math.abs(recordingDuration - expectedDuration);
+      if (durationDiff <= 10) score += 20;
+      else if (durationDiff <= 30) score += 12;
+      else if (durationDiff <= 60) score += 6;
+    }
+
+    return { recording, score, hasTranscript, hasSummary, phoneMatches };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+  const best = scored[0];
+  if (!best) return null;
+
+  // Prevent random wrong matches when there is no strong signal.
+  const minimumScore = normalizedPhone ? 45 : 35;
+  if (best.score < minimumScore) return null;
+  if (!best.hasTranscript && !best.hasSummary) return null;
+
+  return best.recording;
+};
+
 const INITIALIZATION_FAILURE_MESSAGE = 'Initialization failed. Please refresh the page.';
 
 // --- Call Intelligence Modal Component ---
@@ -217,6 +308,7 @@ function CallIntelligenceModal({
   const durationMinutes = Math.floor(totalDuration / 60);
   const durationSeconds = totalDuration % 60;
   const formattedDuration = `${durationMinutes}:${durationSeconds.toString().padStart(2, '0')}`;
+  const transcriptSegments = getTranscriptSegmentsFromRecording(recording);
 
   // Close on Escape key
   useEffect(() => {
@@ -294,8 +386,8 @@ function CallIntelligenceModal({
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto p-6 space-y-8">
-              {recording.transcription && Array.isArray(recording.transcription) && recording.transcription.length > 0 ? (
-                recording.transcription.map((segment: any, index: number) => {
+              {transcriptSegments.length > 0 ? (
+                transcriptSegments.map((segment: any, index: number) => {
                   const speakerName = getSpeakerName(segment.speakerId);
                   const agent = isAgent(segment.speakerId, index);
                   
@@ -367,10 +459,10 @@ function CallIntelligenceModal({
                   <span className="text-slate-500">Duration</span>
                   <span className="font-semibold text-slate-900">{formattedDuration}</span>
                 </div>
-                {recording.transcription && (
+                {transcriptSegments.length > 0 && (
                   <div className="flex justify-between text-sm">
                     <span className="text-slate-500">Segments</span>
-                    <span className="font-semibold text-slate-900">{recording.transcription.length}</span>
+                    <span className="font-semibold text-slate-900">{transcriptSegments.length}</span>
                   </div>
                 )}
               </div>
@@ -406,19 +498,20 @@ function getSummaryFromRecording(recording: any): string | null {
     return recording.summary;
   }
   
-  // Try to extract from insights field
-  if (recording.insights?.insights?.Summary) {
-    const summaryArray = recording.insights.insights.Summary;
+  // Try to extract from insights field (RingSense: Summary or summary)
+  const insightsRoot = recording.insights?.insights || recording.insights;
+  const summaryArray = insightsRoot?.Summary || insightsRoot?.summary;
+  if (summaryArray) {
     if (Array.isArray(summaryArray) && summaryArray.length > 0) {
       const summaryValue = summaryArray[0]?.value || summaryArray[0]?.text || summaryArray[0]?.content;
-      if (summaryValue && summaryValue.trim()) {
-        return summaryValue;
+      if (summaryValue && String(summaryValue).trim()) {
+        return String(summaryValue).trim();
       }
-    } else if (summaryArray?.value && summaryArray.value.trim()) {
-      return summaryArray.value;
+    } else if (summaryArray?.value && String(summaryArray.value).trim()) {
+      return String(summaryArray.value).trim();
     }
   }
-  
+
   return null;
 }
 
@@ -440,6 +533,7 @@ function CallRecordingDisplay({
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [showModal, setShowModal] = useState(false);
+  const syncAttemptedRef = useRef(false);
 
   // Format call duration helper
   const formatCallDuration = (seconds: number) => {
@@ -456,107 +550,108 @@ function CallRecordingDisplay({
   
   // Get summary using helper
   const summaryText = recording ? getSummaryFromRecording(recording) : null;
+  const transcriptSegments = recording ? getTranscriptSegmentsFromRecording(recording) : [];
 
   useEffect(() => {
-    // Fetch call recording if we have a phone number and activity timestamp
-    if (phoneNumber && activity.created_at && !recording) {
-      setLoading(true);
-      const fetchRecording = async () => {
-        try {
-          // SIMPLE: Just get the most recent recording with transcript that matches the phone number
-          const normalizedPhone = phoneNumber.replace(/\D/g, '').slice(-10);
-          
-          // Get all recordings with transcripts, ordered by most recent
-          // Also include recordings with summaries even if no transcript yet
-          const { data: allRecordings, error } = await supabase
-            .from('call_recordings')
-            .select('*')
-            .or('transcription.not.is.null,summary.not.is.null')
-            .order('created_at', { ascending: false })
-            .limit(50);
-          
-          if (error) {
-            console.error('Error:', error);
+    if (!activity.created_at || recording) {
+      if (recording) setLoading(false);
+      return;
+    }
+
+    const expectedDurationSeconds = parseInt(String(duration || metadata?.duration_seconds || metadata?.duration || 0), 10) || 0;
+    const normalizedPhone = normalizePhoneForMatch(phoneNumber);
+    const activityDate = new Date(activity.created_at);
+    const syncWindowStart = new Date(activityDate.getTime() - 12 * 60 * 60 * 1000).toISOString();
+    const syncWindowEnd = new Date(activityDate.getTime() + 12 * 60 * 60 * 1000).toISOString();
+
+    const loadCandidateRecordings = async () => {
+      let query = supabase.from('call_recordings').select('*');
+      if (normalizedPhone) {
+        query = query.or(`from_number.ilike.%${normalizedPhone}%,to_number.ilike.%${normalizedPhone}%`);
+      } else {
+        query = query
+          .gte('start_time', syncWindowStart)
+          .lte('start_time', syncWindowEnd);
+      }
+      const { data, error } = await query
+        .order('start_time', { ascending: false })
+        .limit(300);
+      if (error) throw error;
+      return data || [];
+    };
+
+    const findAndSetMatch = async () => {
+      const candidates = await loadCandidateRecordings();
+      if (candidates.length === 0) return false;
+      const match = findBestRecordingMatch(candidates, {
+        phoneNumber,
+        callType,
+        activityCreatedAt: activity.created_at,
+        callStartedAt: metadata?.call_started_at,
+        callEndedAt: metadata?.call_ended_at,
+        durationSeconds: expectedDurationSeconds,
+      });
+      if (!match) return false;
+      setRecording(match);
+      return true;
+    };
+
+    setLoading(true);
+    let refreshCount = 0;
+    const maxRefreshes = 8; // 8 * 5 sec = 40 sec
+    let interval: any = null;
+
+    const run = async () => {
+      try {
+        const found = await findAndSetMatch();
+        if (found) {
+          setLoading(false);
+          return;
+        }
+
+        // On-demand sync for older/missing calls (run once per card)
+        if (!syncAttemptedRef.current) {
+          syncAttemptedRef.current = true;
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session?.access_token) {
+            headers.Authorization = `Bearer ${session.access_token}`;
+          }
+
+          const syncUrl = `/api/ringsense/insights?perPage=100&maxPages=4&limit=30&dateFrom=${encodeURIComponent(syncWindowStart)}&dateTo=${encodeURIComponent(syncWindowEnd)}${normalizedPhone ? `&phoneNumber=${encodeURIComponent(normalizedPhone)}` : ''}`;
+          await fetch(syncUrl, { method: 'GET', headers });
+          const foundAfterSync = await findAndSetMatch();
+          if (foundAfterSync) {
             setLoading(false);
             return;
           }
-          
-          if (allRecordings && allRecordings.length > 0) {
-            // Find match by phone number (normalized)
-            const match = allRecordings.find((r: any) => {
-              const fromNormalized = r.from_number?.replace(/\D/g, '').slice(-10);
-              const toNormalized = r.to_number?.replace(/\D/g, '').slice(-10);
-              return fromNormalized === normalizedPhone || toNormalized === normalizedPhone;
-            });
-            
-            if (match) {
-              console.log('✓ Found recording:', {
-                id: match.id,
-                call_id: match.call_id,
-                has_summary: !!match.summary,
-                summary_preview: match.summary ? match.summary.substring(0, 100) : 'null',
-                summary_type: typeof match.summary,
-                has_transcription: !!match.transcription,
-                transcription_length: match.transcription?.length || 0
-              });
-              setRecording(match);
-              setLoading(false);
-              return;
-            }
-          }
-          
-          setLoading(false);
-        } catch (error) {
-          console.error('Error:', error);
-          setLoading(false);
         }
-      };
 
-      fetchRecording();
-      
-      // Only set up periodic refresh if recording not found (to catch newly saved ones)
-      // But stop after 30 seconds to avoid infinite polling
-      let refreshCount = 0;
-      const maxRefreshes = 6; // 6 * 5 seconds = 30 seconds max
-      
-      const refreshInterval = setInterval(async () => {
-        if (!recording && refreshCount < maxRefreshes) {
-          refreshCount++;
-          
-          // Quick check in DB for newly saved recording
-          const { data: recentData } = await supabase
-            .from('call_recordings')
-            .select('*')
-            .order('created_at', { ascending: false })
-            .limit(10);
-          
-          if (recentData && recentData.length > 0) {
-            // Try to match by phone number (normalized to last 10 digits)
-            const normalizedPhone = phoneNumber?.replace(/\D/g, '').slice(-10);
-            const match = recentData.find((r: any) => {
-              const fromNormalized = r.from_number?.replace(/\D/g, '').slice(-10);
-              const toNormalized = r.to_number?.replace(/\D/g, '').slice(-10);
-              return (fromNormalized === normalizedPhone || toNormalized === normalizedPhone) && r.transcription;
-            });
-            
-            if (match) {
-              console.log('Found in periodic check:', match.id);
-              setRecording(match);
-              setLoading(false);
-              clearInterval(refreshInterval);
-            }
+        interval = setInterval(async () => {
+          if (refreshCount >= maxRefreshes) {
+            clearInterval(interval);
+            setLoading(false);
+            return;
           }
-        } else {
-          clearInterval(refreshInterval);
-        }
-      }, 5000); // Check every 5 seconds
-      
-      return () => clearInterval(refreshInterval);
-    } else if (recording) {
-      // If we already have a recording, make sure loading is false
-      setLoading(false);
-    }
-  }, [phoneNumber, activity.created_at, metadata]);
+          refreshCount++;
+          const foundOnPoll = await findAndSetMatch();
+          if (foundOnPoll) {
+            clearInterval(interval);
+            setLoading(false);
+          }
+        }, 5000);
+      } catch (error) {
+        console.error('Error loading call recording:', error);
+        setLoading(false);
+      }
+    };
+
+    run();
+
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [phoneNumber, callType, duration, activity.created_at, metadata, recording]);
 
   return (
     <div className="bg-blue-50 rounded-lg p-3 border border-blue-100 mt-3 space-y-2">
@@ -608,17 +703,17 @@ function CallRecordingDisplay({
           )}
 
           {/* View Transcription Button - Show if there's a transcription */}
-          {recording.transcription && Array.isArray(recording.transcription) && recording.transcription.length > 0 && (
+          {transcriptSegments.length > 0 && (
             <button
               onClick={() => setShowModal(true)}
               className="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-2 shadow-sm"
             >
               <i className="fa-solid fa-comments"></i>
-              View Full Transcript ({recording.transcription.length} segments)
+              View Full Transcript ({transcriptSegments.length} segments)
             </button>
           )}
 
-          {!summaryText && (!recording.transcription || recording.transcription.length === 0) && (
+          {!summaryText && transcriptSegments.length === 0 && (
             <div className="text-xs text-slate-500 italic">
               No transcript or summary available for this call.
             </div>
@@ -1743,13 +1838,16 @@ export default function DashboardPage() {
                   duration: duration, // Also save as duration for backward compatibility
                   call_type: 'inbound',
                   phone_number: activeLead.phone,
+                  call_started_at: callStartTime?.toISOString() || null,
+                  call_ended_at: now.toISOString(),
                 }
               );
 
               // Fetch and save call recording after a delay (to allow RingCentral to process)
-              if (duration > 0 && callStartTime) {
+              if (duration > 0) {
+                const callStartedAtForLookup = callStartTime || new Date(now.getTime() - duration * 1000);
                 setTimeout(() => {
-                  fetchAndSaveCallRecording(activeLead.phone, callStartTime, 'inbound', activeLead.id);
+                  fetchAndSaveCallRecording(activeLead.phone, callStartedAtForLookup, 'inbound', activeLead.id);
                 }, 10000); // Wait 10 seconds for RingCentral to process
               }
             }
@@ -1947,13 +2045,16 @@ export default function DashboardPage() {
               duration: duration, // Also save as duration for backward compatibility
               phone_number: leadToDial.phone,
               call_type: 'outbound',
+              call_started_at: callStartTime?.toISOString() || null,
+              call_ended_at: now.toISOString(),
             }
           );
 
           // Fetch and save call recording after a delay (to allow RingCentral to process)
           if (duration > 0) {
+            const callStartedAtForLookup = callStartTime || new Date(now.getTime() - duration * 1000);
             setTimeout(() => {
-              fetchAndSaveCallRecording(leadToDial.phone, callStartTime || new Date(), 'outbound', leadToDial.id);
+              fetchAndSaveCallRecording(leadToDial.phone, callStartedAtForLookup, 'outbound', leadToDial.id);
             }, 10000); // Wait 10 seconds for RingCentral to process
           }
         }
@@ -2305,8 +2406,9 @@ export default function DashboardPage() {
 
               // Calculate call duration and save activity (always save, even if duration is 0)
               if (firstLead?.id) {
+                const now = new Date();
                 const duration = callStartTime
-                  ? Math.floor((new Date().getTime() - callStartTime.getTime()) / 1000)
+                  ? Math.floor((now.getTime() - callStartTime.getTime()) / 1000)
                   : 0;
 
                 console.log('Saving power dialer call terminated activity:', {
@@ -2322,8 +2424,17 @@ export default function DashboardPage() {
                     duration_seconds: duration,
                     phone_number: firstLead.phone,
                     call_type: 'outbound',
+                    call_started_at: callStartTime?.toISOString() || null,
+                    call_ended_at: now.toISOString(),
                   }
                 );
+
+                if (duration > 0) {
+                  const callStartedAtForLookup = callStartTime || new Date(now.getTime() - duration * 1000);
+                  setTimeout(() => {
+                    fetchAndSaveCallRecording(firstLead.phone, callStartedAtForLookup, 'outbound', firstLead.id);
+                  }, 10000);
+                }
               }
 
               setCallStartTime(null);
@@ -2478,8 +2589,9 @@ export default function DashboardPage() {
 
                   // Calculate call duration and save activity (always save, even if duration is 0)
                   if (nextLead?.id) {
+                    const now = new Date();
                     const duration = callStartTime
-                      ? Math.floor((new Date().getTime() - callStartTime.getTime()) / 1000)
+                      ? Math.floor((now.getTime() - callStartTime.getTime()) / 1000)
                       : 0;
 
                     console.log('Saving sequential dialer call terminated activity:', {
@@ -2495,8 +2607,17 @@ export default function DashboardPage() {
                         duration_seconds: duration,
                         phone_number: nextLead.phone,
                         call_type: 'outbound',
+                        call_started_at: callStartTime?.toISOString() || null,
+                        call_ended_at: now.toISOString(),
                       }
                     );
+
+                    if (duration > 0) {
+                      const callStartedAtForLookup = callStartTime || new Date(now.getTime() - duration * 1000);
+                      setTimeout(() => {
+                        fetchAndSaveCallRecording(nextLead.phone, callStartedAtForLookup, 'outbound', nextLead.id);
+                      }, 10000);
+                    }
                   }
 
                   setCallStartTime(null);
@@ -2941,7 +3062,7 @@ export default function DashboardPage() {
         .limit(1)
         .maybeSingle();
       
-      if (existingRecording && existingRecording.transcription) {
+      if (existingRecording && (getTranscriptSegmentsFromRecording(existingRecording).length > 0 || hasSummaryInRecording(existingRecording))) {
         console.log('✓ Recording already exists in DB with transcript, skipping API call');
         
         // Refresh activities to show the recording
@@ -2957,19 +3078,22 @@ export default function DashboardPage() {
       // Recording doesn't exist or doesn't have transcript, fetch from API
       console.log('Recording not found in DB or missing transcript, fetching from API...');
       
-      // Get the current session token
+      // Get the current session token if available (API also supports cookie-based auth fallback)
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        console.error('No session found, cannot fetch recordings');
-        return false;
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`;
       }
 
-      const response = await fetch('/api/ringsense/insights?perPage=5&limit=1', {
+      const dateFrom = new Date(callStartTime.getTime() - 30 * 60 * 1000).toISOString();
+      const dateTo = new Date(callStartTime.getTime() + 90 * 60 * 1000).toISOString();
+      const insightsUrl = `/api/ringsense/insights?perPage=100&maxPages=4&limit=20&dateFrom=${encodeURIComponent(dateFrom)}&dateTo=${encodeURIComponent(dateTo)}&phoneNumber=${encodeURIComponent(normalizedPhone)}`;
+
+      const response = await fetch(insightsUrl, {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
-        },
+        headers,
       });
 
       if (!response.ok) {
