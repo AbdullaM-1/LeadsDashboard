@@ -1,12 +1,45 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createServerClient } from '@supabase/ssr';
 import { createClient } from '@supabase/supabase-js';
 import { SDK } from '@ringcentral/sdk';
 
-// RingCentral credentials - hardcoded
-const RC_SERVER = 'https://platform.ringcentral.com';
-const RC_CLIENT_ID = '7yHuaGSWJhNeYFMWwHujb0';
-const RC_CLIENT_SECRET = 'clr3C6NygUAedroX3f1YLSdmhX8CcwtOdcfFA8XRX8qF';
-const RC_JWT = 'eyJraWQiOiI4NzYyZjU5OGQwNTk0NGRiODZiZjVjYTk3ODA0NzYwOCIsInR5cCI6IkpXVCIsImFsZyI6IlJTMjU2In0.eyJhdWQiOiJodHRwczovL3BsYXRmb3JtLnJpbmdjZW50cmFsLmNvbS9yZXN0YXBpL29hdXRoL3Rva2VuIiwic3ViIjoiMjc3NDMxMDUyIiwiaXNzIjoiaHR0cHM6Ly9wbGF0Zm9ybS5yaW5nY2VudHJhbC5jb20iLCJleHAiOjM5MTU3MjAzMDIsImlhdCI6MTc2ODIzNjY1NSwianRpIjoibE5iVlVobjFSb3lPeUVEVWpuNlNEdyJ9.Lum4lPGzVUIlTVN27LfmeBN62YCrAJNdp_nmTnpLFJzBz8pHncntBQaI9Ud79lfLHC-jZcvHlOb9027WNzWoi50rvAlgL_mgNDHWU5aElOmGQxc25WakcGLWWAFReCAwdUsdLRK28wmkqiWs8b-E6hi3BIQZjHHA9xDc9KLTFKk_4mJZs1xJ2hpyC2FLq68TSV09MudJMJcQ8JfS6ud2ahRkLfaVO4SAAuPqolED761WM1uM-q5daNaYqIpdTgwbgaCvinK4b4UdcNeaqkHqX9Xf8E0kqgH63HgzsBs-K63A5qcxQ96NcRVc3LqtjadiUalTg7Y7bH1nf7K_v4U85w';
+// RingCentral Insights (RingSense) — use env vars: RC_INSIGHTS_SERVER, RC_INSIGHTS_CLIENT_ID, RC_INSIGHTS_CLIENT_SECRET, RC_INSIGHTS_JWT
+const RC_SERVER = process.env.RC_INSIGHTS_SERVER || process.env.RINGCENTRAL_SERVER_URL || 'https://platform.ringcentral.com';
+const RC_CLIENT_ID = process.env.RC_INSIGHTS_CLIENT_ID || process.env.RINGCENTRAL_CLIENT_ID;
+const RC_CLIENT_SECRET = process.env.RC_INSIGHTS_CLIENT_SECRET || process.env.RINGCENTRAL_CLIENT_SECRET;
+const RC_JWT = process.env.RC_INSIGHTS_JWT || process.env.RINGCENTRAL_JWT;
+
+function createSupabaseClientForRequest(
+  request: NextRequest,
+  supabaseUrl: string,
+  supabaseAnonKey: string,
+  authHeader?: string | null
+) {
+  if (authHeader) {
+    return createClient(supabaseUrl, supabaseAnonKey, {
+      global: {
+        headers: {
+          Authorization: authHeader,
+        },
+      },
+    });
+  }
+
+  // Fallback: use Supabase auth cookies when Authorization header is unavailable.
+  return createServerClient(supabaseUrl, supabaseAnonKey, {
+    cookies: {
+      getAll() {
+        return request.cookies.getAll().map((cookie) => ({
+          name: cookie.name,
+          value: cookie.value,
+        }));
+      },
+      setAll() {
+        // Route handler read path doesn't need to set cookies.
+      },
+    },
+  });
+}
 
 /**
  * Get a specific call log record by ID
@@ -34,20 +67,58 @@ async function getCallLogById(platform: any, callLogId: string) {
 }
 
 /**
- * Get call logs with detailed view
- * Returns records with telephonySessionId and recording.id
+ * Get one page of call logs with detailed view.
+ * Returns records with telephonySessionId and recording.id.
  */
-async function getCallLogs(platform: any, perPage: number = 10) {
+async function getCallLogsPage(
+  platform: any,
+  options: {
+    perPage?: number;
+    page?: number;
+    dateFrom?: string;
+    dateTo?: string;
+    direction?: string;
+    phoneNumber?: string;
+    extensionNumber?: string;
+    recordingType?: string;
+  } = {}
+) {
   try {
-    console.log('--- Fetching Call Logs ---');
-    const path = `/restapi/v1.0/account/~/call-log?view=Detailed&perPage=${perPage}`;
+    const {
+      perPage = 100,
+      page = 1,
+      dateFrom,
+      dateTo,
+      direction,
+      phoneNumber,
+      extensionNumber,
+      recordingType,
+    } = options;
+    const query = new URLSearchParams({
+      view: 'Detailed',
+      perPage: String(perPage),
+      page: String(page),
+    });
+    if (dateFrom) query.set('dateFrom', dateFrom);
+    if (dateTo) query.set('dateTo', dateTo);
+    if (direction) query.set('direction', direction);
+    if (phoneNumber) query.set('phoneNumber', phoneNumber);
+    if (extensionNumber) query.set('extensionNumber', extensionNumber);
+    if (recordingType) query.set('recordingType', recordingType);
+
+    const path = `/restapi/v1.0/account/~/call-log?${query.toString()}`;
+    console.log(`--- Fetching Call Logs page=${page}, perPage=${perPage} ---`);
     const resp = await platform.get(path);
     const data = await resp.json();
-    
-    console.log(`Found ${data.records?.length || 0} call records`);
-    return data.records || [];
+
+    const records = data.records || [];
+    console.log(`Fetched ${records.length} records on page ${page}`);
+    return {
+      records,
+      hasNextPage: records.length === perPage,
+    };
   } catch (e: any) {
-    console.error('Failed to get call logs:', e.message || e);
+    console.error('Failed to get call logs page:', e.message || e);
     if (e.response) {
       try {
         const text = await e.response.text();
@@ -114,14 +185,11 @@ async function saveCallRecordingToDB(
   insights: any
 ) {
   try {
-    // Handle the actual API response structure
-    // Summary is an array: [{ value: "...", start: 0, end: 12.93 }]
-    // Transcript is an array: [{ text: "...", start: 0.36, end: 11.24, speakerId: "..." }]
-    // speakerInfo is an array: [{ name: "...", speakerId: "...", ... }]
-    
-    const transcription = insights?.insights?.Transcript || null;
-    const summaryArray = insights?.insights?.Summary || insights?.insights?.summary || null;
-    const speakerInfoArray = insights?.speakerInfo || insights?.insights?.speakerInfo || null;
+    // RingSense API: insights may be at top level or under .insights; support both casing
+    const insightsRoot = insights?.insights || insights;
+    const transcription = insightsRoot?.Transcript || insightsRoot?.transcript || null;
+    const summaryArray = insightsRoot?.Summary || insightsRoot?.summary || null;
+    const speakerInfoArray = insights?.speakerInfo || insightsRoot?.speakerInfo || null;
 
     // Extract summary text from array
     let summaryText = null;
@@ -216,62 +284,62 @@ async function saveCallRecordingToDB(
  */
 export async function GET(request: NextRequest) {
   try {
-    // Verify authentication
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader) {
-      return NextResponse.json(
-        { error: 'Unauthorized. Please log in.' },
-        { status: 401 }
-      );
-    }
+    // Query parameters
+    const searchParams = request.nextUrl.searchParams;
+    const perPage = Math.min(250, Math.max(1, parseInt(searchParams.get('perPage') || '100')));
+    const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : null;
+    const maxPages = Math.min(10, Math.max(1, parseInt(searchParams.get('maxPages') || '4')));
+    const dateFrom = searchParams.get('dateFrom') || undefined;
+    const dateTo = searchParams.get('dateTo') || undefined;
+    const direction = searchParams.get('direction') || undefined;
+    const phoneNumber = searchParams.get('phoneNumber') || undefined;
+    const extensionNumber = searchParams.get('extensionNumber') || undefined;
+    const recordingType = searchParams.get('recordingType') || undefined;
+    const debugMode = searchParams.get('debug') === '1' && process.env.NODE_ENV !== 'production';
 
-    // Check RingCentral credentials
+    // Verify authentication (skip only in debug mode)
+    const authHeader = request.headers.get('authorization');
+
     if (!RC_CLIENT_ID || !RC_CLIENT_SECRET || !RC_JWT) {
-      console.error('RingCentral credentials missing:', {
+      console.error('RingCentral Insights credentials missing:', {
         hasClientId: !!RC_CLIENT_ID,
         hasClientSecret: !!RC_CLIENT_SECRET,
         hasJWT: !!RC_JWT,
       });
       return NextResponse.json(
-        { 
-          error: 'RingCentral credentials not configured. Please check environment variables.',
-          details: 'Missing RINGCENTRAL_CLIENT_ID, RINGCENTRAL_CLIENT_SECRET, or RINGCENTRAL_JWT'
+        {
+          error: 'RingCentral Insights not configured.',
+          details: 'Set RC_INSIGHTS_CLIENT_ID, RC_INSIGHTS_CLIENT_SECRET, and RC_INSIGHTS_JWT in .env.local'
         },
         { status: 500 }
       );
     }
 
-    // Get query parameters
-    const searchParams = request.nextUrl.searchParams;
-    const perPage = parseInt(searchParams.get('perPage') || '10');
-    const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : null;
+    let supabaseClient: any = null;
+    let user: any = null;
+    if (!debugMode) {
+      // Initialize Supabase client
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+      
+      if (!supabaseUrl || !supabaseAnonKey) {
+        return NextResponse.json(
+          { error: 'Server configuration error' },
+          { status: 500 }
+        );
+      }
 
-    // Initialize Supabase client
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    
-    if (!supabaseUrl || !supabaseAnonKey) {
-      return NextResponse.json(
-        { error: 'Server configuration error' },
-        { status: 500 }
-      );
-    }
+      supabaseClient = createSupabaseClientForRequest(request, supabaseUrl, supabaseAnonKey, authHeader);
 
-    const supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
-      global: {
-        headers: {
-          Authorization: authHeader,
-        },
-      },
-    });
-
-    // Verify user is authenticated
-    const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json(
-        { error: 'Unauthorized. Please log in.' },
-        { status: 401 }
-      );
+      // Verify user is authenticated
+      const { data: { user: authUser }, error: authError } = await supabaseClient.auth.getUser();
+      if (authError || !authUser) {
+        return NextResponse.json(
+          { error: 'Unauthorized. Please log in.' },
+          { status: 401 }
+        );
+      }
+      user = authUser;
     }
 
     // Initialize RingCentral SDK
@@ -283,8 +351,50 @@ export async function GET(request: NextRequest) {
     await platform.login({ jwt: RC_JWT });
     console.log('Authentication successful\n');
 
-    // Get call logs
-    const records = await getCallLogs(platform, perPage);
+    // Get call logs (paginated) so we can process all calls in the requested window.
+    const fetchRecords = async (opts: {
+      dateFrom?: string;
+      dateTo?: string;
+      direction?: string;
+      phoneNumber?: string;
+      extensionNumber?: string;
+      recordingType?: string;
+      pages?: number;
+    }) => {
+      const collected: any[] = [];
+      const pagesToFetch = opts.pages || maxPages;
+      for (let page = 1; page <= pagesToFetch; page++) {
+        const pageResult = await getCallLogsPage(platform, {
+          perPage,
+          page,
+          dateFrom: opts.dateFrom,
+          dateTo: opts.dateTo,
+          direction: opts.direction,
+          phoneNumber: opts.phoneNumber,
+          extensionNumber: opts.extensionNumber,
+          recordingType: opts.recordingType,
+        });
+        collected.push(...pageResult.records);
+        if (!pageResult.hasNextPage) break;
+        if (limit && collected.length >= limit * 2) break; // small headroom before filtering by recordings
+      }
+      return collected;
+    };
+
+    let records: any[] = await fetchRecords({
+      dateFrom,
+      dateTo,
+      direction,
+      phoneNumber,
+      extensionNumber,
+      recordingType,
+    });
+
+    const hadFilters = !!(dateFrom || dateTo || direction || phoneNumber || extensionNumber || recordingType);
+    if (records.length === 0 && hadFilters) {
+      console.warn('No call records found with filters; retrying broad recent call logs.');
+      records = await fetchRecords({ pages: Math.min(2, maxPages) });
+    }
     
     if (records.length === 0) {
       return NextResponse.json({
@@ -296,9 +406,15 @@ export async function GET(request: NextRequest) {
     }
 
     // Find calls with recordings
-    const callsWithRecordings = records.filter(
+    let callsWithRecordings = records.filter(
       (call: any) => call.recording && call.recording.id
     );
+
+    if (callsWithRecordings.length === 0 && hadFilters) {
+      console.warn('No calls with recordings found after filtered lookup; retrying broad recent recordings.');
+      const broadRecords = await fetchRecords({ pages: Math.min(2, maxPages) });
+      callsWithRecordings = broadRecords.filter((call: any) => call.recording && call.recording.id);
+    }
 
     if (callsWithRecordings.length === 0) {
       return NextResponse.json({
@@ -321,6 +437,14 @@ export async function GET(request: NextRequest) {
       saved: 0,
       failed: 0,
       errors: [] as Array<{ callId: string; error: string }>,
+      debug: [] as Array<{
+        callId: string;
+        recordId: string | null;
+        sessionId: string | null;
+        hasTranscript: boolean;
+        transcriptSegments: number;
+        hasSummary: boolean;
+      }>,
     };
 
     // Process each call
@@ -360,9 +484,29 @@ export async function GET(request: NextRequest) {
           }
         }
 
+        const insightsRoot = insights?.insights || insights;
+        const transcript = insightsRoot?.Transcript || insightsRoot?.transcript || null;
+        const summary = insightsRoot?.Summary || insightsRoot?.summary || null;
+
+        if (debugMode) {
+          const transcriptSegments = Array.isArray(transcript) ? transcript.length : 0;
+          const hasSummary = Array.isArray(summary)
+            ? summary.length > 0
+            : !!(summary && String(summary).trim());
+          results.debug.push({
+            callId: call.id,
+            recordId: recordId || null,
+            sessionId: sessionId || null,
+            hasTranscript: transcriptSegments > 0,
+            transcriptSegments,
+            hasSummary,
+          });
+          results.processed++;
+          continue;
+        }
+
         // Save to database
         await saveCallRecordingToDB(supabaseClient, user.id, call, insights);
-        
         results.saved++;
         results.processed++;
         
@@ -379,8 +523,11 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      message: `Processed ${results.processed} calls, saved ${results.saved} recordings`,
+      message: debugMode
+        ? `Debug mode: inspected ${results.processed} calls`
+        : `Processed ${results.processed} calls, saved ${results.saved} recordings`,
       ...results,
+      debugMode,
     });
   } catch (error: any) {
     console.error('Error in RingSense insights route:', error);
@@ -405,17 +552,10 @@ export async function POST(request: NextRequest) {
   try {
     // Verify authentication
     const authHeader = request.headers.get('authorization');
-    if (!authHeader) {
-      return NextResponse.json(
-        { error: 'Unauthorized. Please log in.' },
-        { status: 401 }
-      );
-    }
 
-    // Check RingCentral credentials
     if (!RC_CLIENT_ID || !RC_CLIENT_SECRET || !RC_JWT) {
       return NextResponse.json(
-        { error: 'RingCentral credentials not configured. Please check environment variables.' },
+        { error: 'RingCentral Insights not configured. Set RC_INSIGHTS_* in .env.local' },
         { status: 500 }
       );
     }
@@ -441,13 +581,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
-      global: {
-        headers: {
-          Authorization: authHeader,
-        },
-      },
-    });
+    const supabaseClient = createSupabaseClientForRequest(request, supabaseUrl, supabaseAnonKey, authHeader);
 
     // Verify user is authenticated
     const { data: { user }, error: authError } = await supabaseClient.auth.getUser();
