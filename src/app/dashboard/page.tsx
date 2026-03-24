@@ -7,6 +7,7 @@ import { getCurrentUserRole, isAdmin } from '@/utils/roles';
 import Papa from 'papaparse';
 import WebPhone from '@/lib/ringcentral-webphone';
 import { SDK } from '@ringcentral/sdk';
+import { SessionState } from 'sip.js/lib/api/session-state';
 import Chart from 'chart.js/auto';
 import { toast } from 'sonner';
 
@@ -1005,6 +1006,7 @@ export default function DashboardPage() {
   const [itemsPerPage, setItemsPerPage] = useState(50);
   const [isSubmittingDisposition, setIsSubmittingDisposition] = useState(false);
   const [webPhone, setWebPhone] = useState<WebPhone | null>(null);
+  const [rcPlatform, setRcPlatform] = useState<any>(null);
   const [webPhoneReady, setWebPhoneReady] = useState(false);
   const [webPhoneStatus, setWebPhoneStatus] = useState('Initializing...');
   const [rcNeedsConnect, setRcNeedsConnect] = useState(false);
@@ -1036,6 +1038,16 @@ export default function DashboardPage() {
   const [callDuration, setCallDuration] = useState<number>(0);
   // State for mute status
   const [isMuted, setIsMuted] = useState(false);
+  // State for hold status
+  const [isOnHold, setIsOnHold] = useState(false);
+  // State for forward call action
+  const [showForwardInput, setShowForwardInput] = useState(false);
+  const [forwardNumber, setForwardNumber] = useState('');
+  const [isForwarding, setIsForwarding] = useState(false);
+  // Conference call state (REST + WebPhone pattern from RingCentral demo)
+  const [onConference, setOnConference] = useState(false);
+  const [isStartingConference, setIsStartingConference] = useState(false);
+  const confSessionIdRef = useRef<string>('');
   // Ref to track current active lead ID (for use in closures to prevent race conditions)
   const activeLeadIdRef = useRef<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -1469,21 +1481,26 @@ export default function DashboardPage() {
     return () => clearInterval(interval);
   }, [callStartTime, currentCall]);
 
-  // Track mute state from session
+  // Track mute state from session; reset conference when call ends
   useEffect(() => {
     if (!currentCall) {
       setIsMuted(false);
+      setIsOnHold(false);
+      setOnConference(false);
+      confSessionIdRef.current = '';
       return;
     }
 
     // Check initial mute state
     setIsMuted(currentCall.muted || false);
+    setIsOnHold(currentCall.held || false);
 
     // Listen for mute state changes (if the session has events for this)
     // Note: Some WebPhone implementations may not have mute events, so we check on render
     const checkMuteState = () => {
       if (currentCall) {
         setIsMuted(currentCall.muted || false);
+        setIsOnHold(currentCall.held || false);
       }
     };
 
@@ -1492,6 +1509,236 @@ export default function DashboardPage() {
 
     return () => clearInterval(interval);
   }, [currentCall]);
+
+  const handleToggleMute = useCallback(() => {
+    if (!currentCall) return;
+    const session = currentCall as any;
+
+    if (isMuted) {
+      if (typeof session.unmute === 'function') {
+        session.unmute();
+        setIsMuted(false);
+        setWebPhoneStatus('Call unmuted');
+      } else {
+        setWebPhoneStatus('Unmute is not available for this call');
+      }
+      return;
+    }
+
+    if (typeof session.mute === 'function') {
+      session.mute();
+      setIsMuted(true);
+      setWebPhoneStatus('Call muted');
+    } else {
+      setWebPhoneStatus('Mute is not available for this call');
+    }
+  }, [currentCall, isMuted]);
+
+  const handleToggleHold = useCallback(async () => {
+    if (!currentCall) return;
+    const session = currentCall as any;
+
+    try {
+      if (isOnHold) {
+        if (typeof session.unhold === 'function') {
+          await session.unhold();
+          setIsOnHold(false);
+          setWebPhoneStatus('Call resumed');
+        } else {
+          setWebPhoneStatus('Resume is not available for this call');
+        }
+        return;
+      }
+
+      if (typeof session.hold === 'function') {
+        await session.hold();
+        setIsOnHold(true);
+        setWebPhoneStatus('Call on hold');
+      } else {
+        setWebPhoneStatus('Hold is not available for this call');
+      }
+    } catch (error) {
+      console.error('Error toggling hold:', error);
+      setWebPhoneStatus('Failed to change hold state');
+    }
+  }, [currentCall, isOnHold]);
+
+  const handleForwardCall = useCallback(async () => {
+    if (!currentCall) return;
+
+    const normalizedNumber = forwardNumber.replace(/\D/g, '');
+    if (!normalizedNumber) {
+      setWebPhoneStatus('Enter a number to forward the call');
+      return;
+    }
+
+    const session = currentCall as any;
+    const hasTransferMethod = typeof session.transfer === 'function' || typeof session.blindTransfer === 'function';
+    if (!hasTransferMethod) {
+      setWebPhoneStatus('Forward is not available for this call');
+      return;
+    }
+
+    try {
+      setIsForwarding(true);
+      setWebPhoneStatus(`Forwarding to ${forwardNumber}...`);
+
+      if (typeof session.transfer === 'function') {
+        await session.transfer(normalizedNumber);
+      } else {
+        await session.blindTransfer(normalizedNumber);
+      }
+
+      if (activeLead?.id) {
+        saveActivity(
+          activeLead.id,
+          'call',
+          `Call forwarded to ${forwardNumber}`,
+          {
+            call_type: 'outbound',
+            phone_number: activeLead.phone,
+            forwarded_to: forwardNumber,
+          }
+        );
+      }
+
+      setWebPhoneStatus(`Call forwarded to ${forwardNumber}`);
+      setShowForwardInput(false);
+      setForwardNumber('');
+    } catch (error) {
+      console.error('Error forwarding call:', error);
+      setWebPhoneStatus('Failed to forward call');
+    } finally {
+      setIsForwarding(false);
+    }
+  }, [activeLead?.id, activeLead?.phone, currentCall, forwardNumber]);
+
+  const handleEndCurrentCall = useCallback(async () => {
+    if (!currentCall) return;
+
+    try {
+      setWebPhoneStatus('Ending call...');
+
+      const session = currentCall as any;
+      const sessionState = session.state || session.sessionState;
+
+      if (sessionState === 'Initial' || sessionState === 'Establishing') {
+        if (session.cancel) {
+          await session.cancel();
+        } else if (session.bye) {
+          await session.bye();
+        }
+      } else {
+        if (session.bye) {
+          await session.bye();
+        } else if (session.terminate) {
+          await session.terminate();
+        }
+      }
+    } catch (error: any) {
+      console.error('Error ending call:', error);
+      setCurrentCall(null);
+      currentCallRef.current = null;
+      setCallStartTime(null);
+      setWebPhoneStatus('Call ended');
+    }
+  }, [currentCall]);
+
+  // Conference call (REST + WebPhone pattern from RingCentral demo)
+  const getPresenceActiveCalls = useCallback(
+    (platform: any) =>
+      platform.get('/restapi/v1.0/account/~/extension/~/presence?detailedTelephonyState=true'),
+    []
+  );
+
+  const getConfVoiceToken = useCallback(async (platform: any) => {
+    const res = await platform.post('/restapi/v1.0/account/~/telephony/conference', {});
+    const data = await res.json();
+    confSessionIdRef.current = data.session.id;
+    return data.session.voiceCallToken;
+  }, []);
+
+  const bringInToConference = useCallback(
+    (platform: any, telephonySessionId: string, partyId: string) => {
+      const url =
+        '/restapi/v1.0/account/~/telephony/sessions/' +
+        confSessionIdRef.current +
+        '/parties/bring-in';
+      return platform.post(url, { telephonySessionId, partyId });
+    },
+    []
+  );
+
+  const handleStartConference = useCallback(async () => {
+    if (!rcPlatform || !webPhone || !currentCall) {
+      toast.error('Platform or session not ready for conference');
+      return;
+    }
+    if (onConference) {
+      toast.info('A conference is already in progress');
+      return;
+    }
+
+    setIsStartingConference(true);
+    setWebPhoneStatus('Starting conference...');
+
+    try {
+      const presenceRes = await getPresenceActiveCalls(rcPlatform);
+      const presenceData = await presenceRes.json();
+      const activeCalls = presenceData?.activeCalls ?? [];
+      if (activeCalls.length === 0) {
+        toast.error('No active call to add to conference');
+        setIsStartingConference(false);
+        setWebPhoneStatus('Ready to call');
+        return;
+      }
+
+      const partyId = activeCalls[0].partyId;
+      const telephonySessionId = activeCalls[0].telephonySessionId;
+      const voiceToken = await getConfVoiceToken(rcPlatform);
+
+      const primaryNumber = activeLead?.phone?.replace(/\D/g, '') || '';
+      const confSession = webPhone.userAgent.invite(voiceToken, {
+        fromNumber: primaryNumber,
+      });
+
+      confSession.stateChange.addListener((newState) => {
+        if (newState === SessionState.Established) {
+          setOnConference(true);
+          setIsStartingConference(false);
+          setWebPhoneStatus('Conference connected');
+          bringInToConference(rcPlatform, telephonySessionId, partyId)
+            .then((res: any) => res.json?.() ?? res)
+            .then(() => {
+              toast.success('Conference call started');
+            })
+            .catch((e: any) => {
+              console.error('Conference bring-in failed', e);
+              toast.error('Failed to add call to conference');
+            });
+        }
+      });
+
+      confSession.on('terminated', () => {
+        setOnConference(false);
+        confSessionIdRef.current = '';
+      });
+    } catch (e: any) {
+      console.error('Conference start failed', e);
+      toast.error(e?.message || 'Failed to start conference');
+      setIsStartingConference(false);
+      setWebPhoneStatus('Ready to call');
+    }
+  }, [
+    rcPlatform,
+    webPhone,
+    currentCall,
+    onConference,
+    activeLead?.phone,
+    getPresenceActiveCalls,
+    getConfVoiceToken,
+    bringInToConference,
+  ]);
 
   const handleDownloadAllRecordings = async () => {
     if (!rcToken) {
@@ -1764,6 +2011,7 @@ export default function DashboardPage() {
         }
 
         setWebPhoneStatus('Fetching SIP provision...');
+        setRcPlatform(platform);
 
         const response = await platform.post('/restapi/v1.0/client-info/sip-provision', {
           sipInfo: [{ transport: 'WSS' }],
@@ -5131,7 +5379,7 @@ export default function DashboardPage() {
                 </div>
 
                 {/* Dialer UI */}
-                <div className="bg-[#1E293B] shadow-inner h-[160px] lg:h-[160px] shrink-0 overflow-hidden relative flex flex-col">
+                <div className="bg-[#1E293B] shadow-inner h-[220px] lg:h-[220px] shrink-0 overflow-hidden relative flex flex-col">
                   {/* Video elements are now at root level for WebPhone initialization */}
 
 
@@ -5160,52 +5408,75 @@ export default function DashboardPage() {
                     )}
 
                     {currentCall ? (
-                      <div className="flex gap-2 mt-1">
+                      <div className="w-full flex flex-col items-center gap-2 mt-1 px-2">
+                        <div className="flex gap-2 flex-wrap justify-center">
                         <button
-                          onClick={async () => {
-                            if (!currentCall) return;
-
-                            try {
-                              setWebPhoneStatus('Ending call...');
-
-                              // WebPhoneInviter extends SIP.js Inviter
-                              const session = currentCall as any;
-
-                              // Check session state - if it's still initializing, use cancel()
-                              // Otherwise use bye() for established calls
-                              const sessionState = session.state || (session as any).sessionState;
-
-                              if (sessionState === 'Initial' || sessionState === 'Establishing') {
-                                // Call hasn't been established yet, cancel it
-                                if (session.cancel) {
-                                  await session.cancel();
-                                } else if (session.bye) {
-                                  // Fallback to bye if cancel doesn't exist
-                                  await session.bye();
-                                }
-                              } else {
-                                // Call is established, use bye()
-                                if (session.bye) {
-                                  await session.bye();
-                                } else if (session.terminate) {
-                                  // Fallback to terminate
-                                  await session.terminate();
-                                }
-                              }
-
-                            } catch (error: any) {
-                              console.error('Error ending call:', error);
-                              // On error, still clear the state
-                              setCurrentCall(null);
-                              currentCallRef.current = null;
-                              setCallStartTime(null);
-                              setWebPhoneStatus('Call ended');
-                            }
-                          }}
-                          className="mt-1 px-6 py-3 bg-red-600 hover:bg-red-700 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-lg"
+                          onClick={handleToggleMute}
+                          className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-lg ${
+                            isMuted
+                              ? 'bg-amber-500 hover:bg-amber-600 text-white'
+                              : 'bg-slate-600 hover:bg-slate-700 text-white'
+                          }`}
+                        >
+                          <i className={`fa-solid ${isMuted ? 'fa-microphone-slash' : 'fa-microphone'} text-sm`}></i>
+                          {isMuted ? 'Unmute' : 'Mute'}
+                        </button>
+                        <button
+                          onClick={handleToggleHold}
+                          className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-lg ${
+                            isOnHold
+                              ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                              : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                          }`}
+                        >
+                          <i className={`fa-solid ${isOnHold ? 'fa-play' : 'fa-pause'} text-sm`}></i>
+                          {isOnHold ? 'Resume' : 'Hold'}
+                        </button>
+                        <button
+                          onClick={handleEndCurrentCall}
+                          className="px-6 py-3 bg-red-600 hover:bg-red-700 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-lg"
                         >
                           <i className="fa-solid fa-phone-slash text-base"></i> End Call
                         </button>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap justify-center">
+                          <button
+                            onClick={handleStartConference}
+                            disabled={isStartingConference || onConference || !rcPlatform}
+                            className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-lg ${
+                              onConference
+                                ? 'bg-emerald-600 text-white cursor-default'
+                                : 'bg-violet-600 hover:bg-violet-700 text-white disabled:opacity-50 disabled:cursor-not-allowed'
+                            }`}
+                          >
+                            <i className="fa-solid fa-users text-xs"></i>
+                            {isStartingConference ? 'Starting...' : onConference ? 'In Conference' : 'Conference'}
+                          </button>
+                          <button
+                            onClick={() => setShowForwardInput((prev) => !prev)}
+                            className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-lg"
+                          >
+                            <i className="fa-solid fa-share text-xs"></i> Forward
+                          </button>
+                          {showForwardInput && (
+                            <>
+                              <input
+                                type="tel"
+                                value={forwardNumber}
+                                onChange={(e) => setForwardNumber(e.target.value)}
+                                placeholder="Forward number"
+                                className="px-3 py-2 rounded-lg text-xs text-slate-900 bg-white border border-slate-300 outline-none focus:ring-2 focus:ring-cyan-300 w-40"
+                              />
+                              <button
+                                onClick={handleForwardCall}
+                                disabled={isForwarding || !forwardNumber.trim()}
+                                className="px-3 py-2 bg-cyan-500 hover:bg-cyan-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-xs font-bold text-white transition-all"
+                              >
+                                {isForwarding ? 'Sending...' : 'Send'}
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </div>
                     ) : webPhoneReady && activeLead?.phone && !powerDialerEnabled ? (
                       <button

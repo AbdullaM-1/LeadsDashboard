@@ -8,13 +8,37 @@ const INITIALIZATION_FAILURE_MESSAGE = 'Initialization failed. Please refresh th
 
 export default function WebPhonePage() {
   const [webPhone, setWebPhone] = useState<WebPhone | null>(null);
+  const [currentSession, setCurrentSession] = useState<any | null>(null);
+  const [isInCall, setIsInCall] = useState(false);
   const [isReady, setIsReady] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isOnHold, setIsOnHold] = useState(false);
   const [phoneNumber, setPhoneNumber] = useState('');
   const [status, setStatus] = useState('Initializing...');
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
+    const attachSessionHandlers = (session: any) => {
+      session.on('accepted', () => {
+        console.log('Call connected');
+        setCurrentSession(session);
+        setIsInCall(true);
+        setIsMuted(false);
+        setIsOnHold(false);
+        setStatus('Call connected');
+      });
+
+      session.on('terminated', () => {
+        console.log('Call terminated');
+        setCurrentSession(null);
+        setIsInCall(false);
+        setIsMuted(false);
+        setIsOnHold(false);
+        setStatus('Call terminated');
+      });
+    };
+
     async function initializeWebPhone() {
       try {
         const clientId = process.env.NEXT_PUBLIC_RC_CLIENT_ID;
@@ -96,14 +120,11 @@ export default function WebPhonePage() {
         phone.userAgent.on('invite', (session) => {
           console.log('Incoming call!');
           setStatus('Incoming call...');
+          attachSessionHandlers(session);
           // Handle incoming call
-          session.accept().then(() => {
-            console.log('Call accepted');
-            setStatus('Call connected');
-          });
-          
-          session.on('terminated', () => {
-             setStatus('Call terminated');
+          session.accept().catch((error: unknown) => {
+            console.error('Failed to accept incoming call:', error);
+            setStatus('Failed to accept incoming call');
           });
         });
         
@@ -154,16 +175,69 @@ export default function WebPhonePage() {
     const session = webPhone.userAgent.invite(phoneNumber, {
       fromNumber: '+1234567890', // Replace with your verified number
     });
-    
+
     session.on('accepted', () => {
       console.log('Call connected');
+      setCurrentSession(session);
+      setIsInCall(true);
+      setIsMuted(false);
+      setIsOnHold(false);
       setStatus('Call connected');
     });
-    
+
     session.on('terminated', () => {
       console.log('Call terminated');
+      setCurrentSession(null);
+      setIsInCall(false);
+      setIsMuted(false);
+      setIsOnHold(false);
       setStatus('Call terminated');
     });
+  };
+
+  const toggleMute = () => {
+    if (!currentSession) return;
+
+    if (typeof currentSession.mute !== 'function' || typeof currentSession.unmute !== 'function') {
+      setStatus('Mute control is unavailable for this call');
+      return;
+    }
+
+    if (isMuted) {
+      currentSession.unmute?.();
+      setIsMuted(false);
+      setStatus('Call unmuted');
+      return;
+    }
+
+    currentSession.mute?.();
+    setIsMuted(true);
+    setStatus('Call muted');
+  };
+
+  const toggleHold = async () => {
+    if (!currentSession) return;
+
+    if (typeof currentSession.hold !== 'function' || typeof currentSession.unhold !== 'function') {
+      setStatus('Hold control is unavailable for this call');
+      return;
+    }
+
+    try {
+      if (isOnHold) {
+        await currentSession.unhold?.();
+        setIsOnHold(false);
+        setStatus('Call resumed');
+        return;
+      }
+
+      await currentSession.hold?.();
+      setIsOnHold(true);
+      setStatus('Call on hold');
+    } catch (error) {
+      console.error('Failed to toggle hold:', error);
+      setStatus('Could not change hold state');
+    }
   };
 
   return (
@@ -202,6 +276,25 @@ export default function WebPhonePage() {
           >
             <i className="fa-solid fa-phone"></i> Call Now
           </button>
+
+          {isInCall && currentSession && (
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={toggleMute}
+                className="w-full bg-slate-700 hover:bg-slate-800 text-white rounded-xl py-3 font-black uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-2"
+              >
+                <i className={`fa-solid ${isMuted ? 'fa-microphone-slash' : 'fa-microphone'}`}></i>
+                {isMuted ? 'Unmute' : 'Mute'}
+              </button>
+              <button
+                onClick={toggleHold}
+                className="w-full bg-amber-500 hover:bg-amber-600 text-white rounded-xl py-3 font-black uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-2"
+              >
+                <i className={`fa-solid ${isOnHold ? 'fa-play' : 'fa-pause'}`}></i>
+                {isOnHold ? 'Resume' : 'Hold'}
+              </button>
+            </div>
+          )}
           
           {!isReady && (
              <div className="p-4 bg-amber-50 border border-amber-100 rounded-xl text-xs text-amber-700 leading-relaxed">
