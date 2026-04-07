@@ -54,6 +54,7 @@ const DISPOSITION_OPTIONS = [
   'Voice Mail',
   'Left Voice Mail',
   'Call Back',
+  'Language Barrier',
   'Do Not Call',
   'NW# (No Working Number)',
   'W# (Wrong Number)',
@@ -74,6 +75,7 @@ const STATUS_QUERY_MAP: Record<string, string[]> = {
   'Voice Mail': ['Voice Mail'],
   'Left Voice Mail': ['Left Voice Mail', 'Left Voicemail'],
   'Call Back': ['Call Back'],
+  'Language Barrier': ['Language Barrier'],
   'Do Not Call': ['Do Not Call'],
   'NW# (No Working Number)': ['NW# (No Working Number)'],
   'W# (Wrong Number)': ['W# (Wrong Number)'],
@@ -5423,8 +5425,11 @@ export default function DashboardPage() {
                         </button>
                         <button
                           onClick={handleToggleHold}
+                          disabled={!callStartTime}
                           className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-lg ${
-                            isOnHold
+                            !callStartTime
+                              ? 'bg-slate-500 text-slate-300 cursor-not-allowed'
+                              : isOnHold
                               ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
                               : 'bg-indigo-600 hover:bg-indigo-700 text-white'
                           }`}
@@ -5442,15 +5447,11 @@ export default function DashboardPage() {
                         <div className="flex items-center gap-2 flex-wrap justify-center">
                           <button
                             onClick={handleStartConference}
-                            disabled={isStartingConference || onConference || !rcPlatform}
-                            className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-lg ${
-                              onConference
-                                ? 'bg-emerald-600 text-white cursor-default'
-                                : 'bg-violet-600 hover:bg-violet-700 text-white disabled:opacity-50 disabled:cursor-not-allowed'
-                            }`}
+                            disabled={true}
+                            className="px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-lg bg-violet-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             <i className="fa-solid fa-users text-xs"></i>
-                            {isStartingConference ? 'Starting...' : onConference ? 'In Conference' : 'Conference'}
+                            Conference
                           </button>
                           <button
                             onClick={() => setShowForwardInput((prev) => !prev)}
