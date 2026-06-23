@@ -46,6 +46,13 @@ interface LeadRow {
   age?: string;
   logs?: string;
   callLogs?: string;
+  "Business Name"?: string;
+  business_name?: string;
+  BusinessName?: string;
+  Company?: string;
+  company?: string;
+  "Company Name"?: string;
+  company_name?: string;
 }
 
 function buildCustomFields(values: {
@@ -109,6 +116,7 @@ function normalizeLeadData(row: LeadRow) {
   const status = getValue("status", "Status") || STATUS_OPTIONS[0];
   const age = getValue("Lead Age", "lead age", "age", "leadAge");
   const logs = getValue("logs", "callLogs", "Call Logs") || "[]";
+  const businessName = getValue("Business Name", "business_name", "BusinessName", "Company", "company", "Company Name", "company_name");
 
   return {
     firstName,
@@ -124,6 +132,7 @@ function normalizeLeadData(row: LeadRow) {
     status,
     age,
     logs,
+    businessName,
   };
 }
 
@@ -155,6 +164,7 @@ async function createContactInGHL(
   if (leadData.city) body.city = leadData.city;
   if (leadData.state) body.state = leadData.state;
   if (leadData.postalCode) body.postalCode = leadData.postalCode;
+  if (leadData.businessName) body.companyName = leadData.businessName;
 
   // Add custom fields if any are configured
   if (customFields) {
