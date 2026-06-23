@@ -31,6 +31,7 @@ interface Lead {
   date_of_birth?: string;
   lead_age?: string;
   source?: string;
+  business_name?: string;
 }
 
 type SortConfig = {
@@ -4148,6 +4149,7 @@ export default function DashboardPage() {
             lead_age: row['Lead Age']
               ? new Date(row['Lead Age']).toISOString().split('T')[0]
               : null,
+            business_name: row['Business Name'] || row['business_name'] || row['BusinessName'] || row['Company'] || row['company'] || row['Company Name'] || row['company_name'] || null,
             fulfill_date: row['fulfill_date']
               ? new Date(row['fulfill_date']).toISOString()
               : null,
@@ -6075,6 +6077,11 @@ export default function DashboardPage() {
                                   <div className="font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">
                                     {lead.first_name} {lead.last_name}
                                   </div>
+                                  {lead.business_name && (
+                                    <div className="text-[10px] text-indigo-500 font-semibold truncate max-w-[140px]">
+                                      {lead.business_name}
+                                    </div>
+                                  )}
                                   <div className="text-[10px] text-slate-500 font-medium">
                                     {lead.lead_age ? `Age: ${lead.lead_age}` : ''}
                                   </div>
