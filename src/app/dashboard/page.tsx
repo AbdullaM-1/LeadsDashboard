@@ -5094,6 +5094,12 @@ export default function DashboardPage() {
                           <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Email Address</label>
                           <div className="text-slate-900 font-medium border-b border-slate-100 pb-2">{activeLead?.email || '--'}</div>
                         </div>
+                        {activeLead?.business_name && (
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Business Name</label>
+                            <div className="text-slate-900 font-semibold border-b border-slate-100 pb-2">{activeLead.business_name}</div>
+                          </div>
+                        )}
                         <div>
                           <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Source</label>
                           <div className="inline-flex items-center px-2 py-1 rounded bg-slate-100 text-[11px] font-bold text-slate-600 border border-slate-200">
