@@ -2898,22 +2898,30 @@ export default function DashboardPage() {
             created_at: new Date().toISOString(),
           }));
 
-          if (parsedLeads.length === 0) {
+          // Filter out rows where both phone and name are empty (blank CSV rows)
+          const filteredLeads = parsedLeads.filter((lead) =>
+            lead.phone || lead.first_name || lead.last_name
+          );
+
+          if (filteredLeads.length === 0) {
             setImportError('The CSV file appears to be empty.');
             setIsImporting(false);
             return;
           }
 
-          console.log('[Import] Sample lead being inserted:', JSON.stringify(parsedLeads[0], null, 2));
+          console.log(`[Import] ${filteredLeads.length} valid leads (${parsedLeads.length - filteredLeads.length} blank rows skipped)`);
 
-          const { error } = await supabase.from('leads').insert(parsedLeads);
-
-          if (error) {
-            console.error('[Import] Supabase insert error:', error);
-            throw error;
+          const BATCH_SIZE = 500;
+          for (let i = 0; i < filteredLeads.length; i += BATCH_SIZE) {
+            const batch = filteredLeads.slice(i, i + BATCH_SIZE);
+            const { error } = await supabase.from('leads').insert(batch);
+            if (error) {
+              console.error('[Import] Supabase insert error on batch', i / BATCH_SIZE + 1, error);
+              throw error;
+            }
           }
 
-          alert(`Successfully imported ${parsedLeads.length} leads!`);
+          alert(`Successfully imported ${filteredLeads.length} leads!`);
           resetPaginationState();
           await fetchLeads();
           resetImportModal();
