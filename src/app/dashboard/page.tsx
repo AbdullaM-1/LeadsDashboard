@@ -4165,11 +4165,30 @@ export default function DashboardPage() {
             created_at: new Date().toISOString(),
           }));
 
-          if (parsedLeads.length === 0) {
+          // Filter out rows where both phone and name are empty (blank CSV rows)
+          const filteredLeads = parsedLeads.filter((lead) =>
+            lead.phone || lead.first_name || lead.last_name
+          );
+
+          if (filteredLeads.length === 0) {
             setImportError('The CSV file appears to be empty.');
             setIsImporting(false);
             return;
           }
+
+          console.log(`[Import] ${filteredLeads.length} valid leads (${parsedLeads.length - filteredLeads.length} blank rows skipped)`);
+
+          const BATCH_SIZE = 500;
+          const insertLeadsBatched = async (leads: any[]) => {
+            for (let i = 0; i < leads.length; i += BATCH_SIZE) {
+              const batch = leads.slice(i, i + BATCH_SIZE);
+              const { error } = await supabase.from('leads').insert(batch);
+              if (error) {
+                console.error('[Import] Supabase insert error on batch', i / BATCH_SIZE + 1, error);
+                throw error;
+              }
+            }
+          };
 
           // Normalize phone numbers for comparison (remove spaces, dashes, parentheses, etc.)
           const normalizePhone = (phone: string | null | undefined): string => {
@@ -4178,8 +4197,8 @@ export default function DashboardPage() {
           };
 
           // Filter out leads without phone numbers for duplicate check
-          const leadsWithPhone = parsedLeads.filter(lead => lead.phone && normalizePhone(lead.phone));
-          
+          const leadsWithPhone = filteredLeads.filter(lead => lead.phone && normalizePhone(lead.phone));
+
           if (leadsWithPhone.length > 0) {
             // Get all phone numbers from the CSV
             const csvPhoneNumbers = leadsWithPhone.map(lead => normalizePhone(lead.phone));
@@ -4227,7 +4246,7 @@ export default function DashboardPage() {
             const duplicateLeadsList: any[] = [];
             const newLeads: any[] = [];
 
-            parsedLeads.forEach(lead => {
+            filteredLeads.forEach(lead => {
               const normalizedPhone = normalizePhone(lead.phone);
               if (normalizedPhone && existingPhoneMap.has(normalizedPhone)) {
                 // This is a duplicate
@@ -4255,8 +4274,7 @@ export default function DashboardPage() {
 
             // Only insert non-duplicate leads
             if (newLeads.length > 0) {
-              const { error } = await supabase.from('leads').insert(newLeads);
-              if (error) throw error;
+              await insertLeadsBatched(newLeads);
             }
 
             // Show success message with details
@@ -4277,10 +4295,9 @@ export default function DashboardPage() {
             }
           } else {
             // No phone numbers in CSV, insert all leads
-            const { error } = await supabase.from('leads').insert(parsedLeads);
-            if (error) throw error;
+            await insertLeadsBatched(filteredLeads);
 
-            toast.success(`Successfully imported ${parsedLeads.length} leads!`);
+            toast.success(`Successfully imported ${filteredLeads.length} leads!`);
             resetPaginationState();
             await fetchLeads();
             resetImportModal();
