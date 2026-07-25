@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { supabase } from '@/utils/supabase/client';
 
 export default function LoginPage() {
@@ -141,7 +142,12 @@ export default function LoginPage() {
             </div>
 
             <div>
-              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Password</label>
+              <div className="flex items-center justify-between ml-1 mb-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Password</label>
+                <Link href="/forgot-password" className="text-[10px] font-black text-indigo-500 hover:text-indigo-600 uppercase tracking-widest">
+                  Forgot?
+                </Link>
+              </div>
               <div className="relative">
                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none flex items-center justify-center">
                   <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4 w-4">
